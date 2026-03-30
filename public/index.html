@@ -1068,19 +1068,16 @@
             <div class="col-md-6 mb-3">
               <label class="form-label fw-bold">Khu vực upload</label>
               <div id="${row.dropZoneId}" class="drop-zone" role="button" tabindex="0">
-                <div class="fw-bold text-primary">Thả 1 folder hoặc 2 file vào đây</div>
+                <div class="fw-bold text-primary">Thả 1 folder hoặc chọn lần lượt CSV rồi MP4</div>
                 <div class="tiny-note mt-2">
                   Folder mode: chỉ cần đúng 1 CSV và 1 MP4 bên trong folder.
                 </div>
                 <div class="tiny-note">
-                  File mode: chọn đúng 1 CSV và 1 MP4.
-                </div>
-                <div class="tiny-note mt-2">
-                  Click vào đây để chọn 2 file, hoặc dùng nút riêng để chọn folder.
+                  File mode: click vào đây để chọn lần lượt 1 CSV rồi 1 MP4.
                 </div>
               </div>
               <div class="d-flex gap-2 mt-2">
-                <button type="button" id="${row.chooseFilesBtnId}" class="btn btn-sm btn-outline-primary">Chọn 2 file</button>
+                <button type="button" id="${row.chooseFilesBtnId}" class="btn btn-sm btn-outline-primary">Chọn CSV rồi MP4</button>
                 <button type="button" id="${row.chooseFolderBtnId}" class="btn btn-sm btn-outline-secondary">Chọn folder</button>
               </div>
               <input
@@ -1183,7 +1180,7 @@
 
         document.getElementById(row.chooseFilesBtnId).addEventListener("click", (event) => {
           event.stopPropagation();
-          document.getElementById(row.filesPickerId).click();
+          beginSequentialFilePick(row);
         });
 
         document.getElementById(row.chooseFolderBtnId).addEventListener("click", (event) => {
@@ -1202,6 +1199,34 @@
             );
             event.target.value = "";
           });
+
+        document.getElementById(row.csvField).addEventListener("change", (event) => {
+          const file = (event.target.files || [])[0];
+          if (!file) return;
+          if (getFileExtension(file.name) !== "csv") {
+            showRowStatus(mode, key, false, "File đầu tiên phải là CSV.");
+            event.target.value = "";
+            return;
+          }
+          renderSequentialFileSelection(row);
+          document.getElementById(row.mp4Field).click();
+        });
+
+        document.getElementById(row.mp4Field).addEventListener("change", () => {
+          const csvFile = (document.getElementById(row.csvField).files || [])[0];
+          const mp4File = (document.getElementById(row.mp4Field).files || [])[0];
+          if (!csvFile || !mp4File) {
+            renderSequentialFileSelection(row);
+            return;
+          }
+          if (getFileExtension(mp4File.name) !== "mp4") {
+            showRowStatus(mode, key, false, "File thứ hai phải là MP4.");
+            document.getElementById(row.mp4Field).value = "";
+            renderSequentialFileSelection(row);
+            return;
+          }
+          stageRowFiles(mode, key, [csvFile, mp4File], "files");
+        });
 
         document
           .getElementById(row.filesPickerId)
@@ -1237,6 +1262,10 @@
       function removeUploadRow(mode, key) {
         const row = state[mode].rows.find((item) => item.key === key);
         if (!row) return;
+
+        if (!confirm("Bạn có chắc muốn xóa session này không?")) {
+          return;
+        }
 
         if (!row.uploadMeta) {
           deleteRowCard(mode, key);
@@ -1312,6 +1341,34 @@
         );
       }
 
+      function beginSequentialFilePick(row) {
+        if (!row) return;
+        const csvInput = document.getElementById(row.csvField);
+        const mp4Input = document.getElementById(row.mp4Field);
+        if (!csvInput || !mp4Input) return;
+        csvInput.value = "";
+        mp4Input.value = "";
+        renderSequentialFileSelection(row);
+        csvInput.click();
+      }
+
+      function renderSequentialFileSelection(row) {
+        if (!row) return;
+        const csvFile = (document.getElementById(row.csvField).files || [])[0];
+        const mp4File = (document.getElementById(row.mp4Field).files || [])[0];
+        const files = [csvFile, mp4File].filter(Boolean);
+        if (!files.length) {
+          renderFileSelection(row.fileListId, []);
+          return;
+        }
+        const label = csvFile && mp4File
+          ? "File đã sẵn sàng"
+          : csvFile
+            ? "Đã chọn CSV, chờ MP4"
+            : "Đang chờ CSV";
+        renderFileSelection(row.fileListId, files, label);
+      }
+
       function toggleEmptyState(mode) {
         document
           .getElementById(mode + "Empty")
@@ -1352,12 +1409,12 @@
         if (!zone) return;
 
         zone.addEventListener("click", () => {
-          document.getElementById(row.filesPickerId).click();
+          beginSequentialFilePick(row);
         });
         zone.addEventListener("keydown", (event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            document.getElementById(row.filesPickerId).click();
+            beginSequentialFilePick(row);
           }
         });
 
@@ -1761,7 +1818,6 @@
             selectedGame,
             record.sessionId,
           ].filter(Boolean).join(" > "))}</div>
-          <div>Chưa có link trên Sheet.</div>
         `;
       }
 
@@ -1796,7 +1852,7 @@
                 : "");
             const filesHtml = (res.files || []).length
               ? `<div class="folder-files">${res.files.map((file) => renderFileRow(file, mode, sessionId)).join("")}</div>`
-              : `<div class="tiny-note mt-2">Folder hiện chưa có file.</div>`;
+              : "";
 
             details.innerHTML = `
               <div><strong>${escapeHtml(res.sessionId)}</strong></div>
@@ -1807,7 +1863,7 @@
                 res.sessionId,
               ].filter(Boolean).join(" > "))}</div>
               <div>Folder hiện tại: ${currentFolderUrl ? `<a href="${escapeHtml(currentFolderUrl)}" target="_blank">Mở thư mục</a>` : "Chưa có link"}</div>
-              <div class="tiny-note mt-2">${escapeHtml(currentMessage)}</div>
+              ${currentMessage ? `<div class="tiny-note mt-2">${escapeHtml(currentMessage)}</div>` : ""}
               ${filesHtml}
             `;
           })
