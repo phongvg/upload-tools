@@ -7,6 +7,7 @@
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
     />
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
       body {
         padding: 24px;
@@ -98,11 +99,32 @@
         border-top: 1px solid #e8eef8;
         padding-top: 14px;
       }
+      .auth-box {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+      }
+      .auth-status {
+        font-size: 14px;
+        color: #42546f;
+      }
     </style>
   </head>
   <body>
     <div class="upload-container">
       <h3 class="text-center text-primary mb-4">Tbrain-Upload System</h3>
+
+      <div class="panel-box auth-box">
+        <div>
+          <div class="fw-bold">Tài khoản Google</div>
+          <div id="authStatus" class="auth-status">Chưa đăng nhập.</div>
+        </div>
+        <div class="d-flex gap-2">
+          <button type="button" id="loginBtn" class="btn btn-primary">Đăng nhập Google</button>
+          <button type="button" id="logoutBtn" class="btn btn-outline-secondary d-none">Đăng xuất</button>
+        </div>
+      </div>
 
       <ul class="nav nav-tabs mb-4" id="mainTabs" role="tablist">
         <li class="nav-item" role="presentation">
@@ -429,12 +451,107 @@
         add: createModeState("add"),
         edit: createModeState("edit"),
       };
-      
+      const authState = {
+        clientId: "",
+        scopes: [],
+        accessToken: "",
+        tokenClient: null,
+        email: "",
+        name: "",
+      };
+
       window.onload = function () {
         bindModeEvents("add");
         bindModeEvents("edit");
+        bindAuthEvents();
         loadInitialData();
       };
+
+      function bindAuthEvents() {
+        const loginBtn = document.getElementById("loginBtn");
+        const logoutBtn = document.getElementById("logoutBtn");
+        if (loginBtn) {
+          loginBtn.addEventListener("click", () => {
+            loginWithGoogle();
+          });
+        }
+        if (logoutBtn) {
+          logoutBtn.addEventListener("click", () => {
+            logoutGoogle();
+          });
+        }
+      }
+
+      function initGoogleAuth() {
+        if (!authState.clientId || !window.google || !google.accounts || !google.accounts.oauth2) {
+          return;
+        }
+        authState.tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: authState.clientId,
+          scope: (authState.scopes || []).join(" "),
+          callback: async (tokenResponse) => {
+            if (!tokenResponse || tokenResponse.error) {
+              showAuthMessage(
+                tokenResponse && tokenResponse.error
+                  ? `Đăng nhập thất bại: ${tokenResponse.error}`
+                  : "Không thể lấy access token Google.",
+                true,
+              );
+              return;
+            }
+            authState.accessToken = tokenResponse.access_token || "";
+            try {
+              const me = await apiGet("/api/me", {}, { public: false });
+              authState.email = me.email || "";
+              authState.name = me.name || "";
+              updateAuthUi();
+            } catch (error) {
+              showAuthMessage(normalizeError(error), true);
+            }
+          },
+        });
+      }
+
+      function loginWithGoogle() {
+        if (!authState.tokenClient) {
+          showAuthMessage("Thiếu GOOGLE_CLIENT_ID hoặc Google Identity chưa sẵn sàng.", true);
+          return;
+        }
+        authState.tokenClient.requestAccessToken({
+          prompt: authState.accessToken ? "" : "consent",
+        });
+      }
+
+      function logoutGoogle() {
+        if (authState.accessToken && window.google && google.accounts && google.accounts.oauth2) {
+          google.accounts.oauth2.revoke(authState.accessToken, () => {});
+        }
+        authState.accessToken = "";
+        authState.email = "";
+        authState.name = "";
+        updateAuthUi();
+      }
+
+      function updateAuthUi() {
+        const status = document.getElementById("authStatus");
+        const loginBtn = document.getElementById("loginBtn");
+        const logoutBtn = document.getElementById("logoutBtn");
+        const loggedIn = !!authState.accessToken;
+        if (status) {
+          status.innerText = loggedIn
+            ? `Đang đăng nhập: ${authState.name || authState.email || "Google User"}`
+            : "Chưa đăng nhập.";
+        }
+        if (loginBtn) loginBtn.classList.toggle("d-none", loggedIn);
+        if (logoutBtn) logoutBtn.classList.toggle("d-none", !loggedIn);
+      }
+
+      function showAuthMessage(message, isError) {
+        const status = document.getElementById("authStatus");
+        if (!status) return;
+        status.innerText = message;
+        status.className = "auth-status" + (isError ? " text-danger" : "");
+      }
 
       function createModeState(mode) {
         return {
@@ -503,7 +620,7 @@
 
       async function loadInitialData() {
         try {
-          const res = await apiGet("/api/bootstrap");
+          const res = await apiGet("/api/bootstrap", {}, { public: true });
           if (!res || !res.ok) {
             throw new Error(res && res.message ? res.message : "Không thể tải dữ liệu khởi tạo.");
           }
@@ -531,6 +648,10 @@
           document.getElementById("editSelectedGame").value =
             document.getElementById("editGame").value || "GTA";
           populateTeams(res.teams || []);
+          authState.clientId = res.googleClientId || "";
+          authState.scopes = res.googleScopes || [];
+          initGoogleAuth();
+          updateAuthUi();
           updateMetaStatus("add", "Chọn Team để tải danh sách Batch.");
           updateMetaStatus("edit", "Chọn Team để tải danh sách Batch.");
           const adminBox = document.getElementById("adminBox");
@@ -596,16 +717,7 @@
             }
             modeState.batchOptions = res.batches || [];
             renderBatchOptions(mode);
-            const clientMs = Date.now() - requestStartedAt;
-            const serverMs = res && typeof res.debugMs === "number" ? res.debugMs : null;
-            updateMetaStatus(
-              mode,
-              "Đã tải danh sách Batch." +
-                "\nClient: " +
-                clientMs +
-                "ms" +
-                (serverMs !== null ? "\nServer: " + serverMs + "ms" : ""),
-            );
+            updateMetaStatus(mode, "Chọn Batch để tải danh sách Session.");
           })
           .catch((err) => {
             modeState.batchOptions = [];
@@ -703,18 +815,7 @@
             modeState.records = res.records || [];
             modeState.recordsLoaded = true;
             refreshSessionOptions(mode);
-            const clientMs = Date.now() - requestStartedAt;
-            const serverMs = res && typeof res.debugMs === "number" ? res.debugMs : null;
-            updateMetaStatus(
-              mode,
-              [
-                "Đã tải danh sách Session.",
-                "Client: " + clientMs + "ms",
-                serverMs !== null ? "Server: " + serverMs + "ms" : "",
-              ]
-                .filter(Boolean)
-                .join("\n"),
-            );
+            updateMetaStatus(mode);
           })
           .catch((err) => {
             modeState.records = [];
@@ -1906,25 +2007,27 @@
         box.classList.remove("d-none");
       }
 
-      async function apiGet(path, params) {
+      async function apiGet(path, params, options) {
         const url = new URL(path, window.location.origin);
         Object.entries(params || {}).forEach(([key, value]) => {
           if (value !== undefined && value !== null && value !== "") {
             url.searchParams.set(key, value);
           }
         });
+        const headers = buildAuthHeaders(options);
         const response = await fetch(url.toString(), {
           credentials: "same-origin",
+          headers,
         });
         return parseApiResponse(response);
       }
 
-      async function apiPostJson(path, payload) {
+      async function apiPostJson(path, payload, options) {
+        const headers = buildAuthHeaders(options);
+        headers["Content-Type"] = "application/json";
         const response = await fetch(path, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers,
           credentials: "same-origin",
           body: JSON.stringify(payload || {}),
         });
@@ -1958,9 +2061,22 @@
         const response = await fetch("/api/upload", {
           method: "POST",
           credentials: "same-origin",
+          headers: buildAuthHeaders(),
           body: formData,
         });
         return parseApiResponse(response);
+      }
+
+      function buildAuthHeaders(options) {
+        const publicCall = options && options.public;
+        if (!publicCall && !authState.accessToken) {
+          throw new Error("Vui lòng đăng nhập Google trước.");
+        }
+        const headers = {};
+        if (!publicCall && authState.accessToken) {
+          headers.Authorization = "Bearer " + authState.accessToken;
+        }
+        return headers;
       }
 
       async function parseApiResponse(response) {

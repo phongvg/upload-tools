@@ -9,10 +9,11 @@ export async function getTeamFolder(team) {
   return { id: folderId };
 }
 
-export async function findChildFolderByName(parentId, name) {
-  const drive = await getDrive();
+export async function findChildFolderByName(parentId, name, accessToken) {
+  const drive = await getDrive(accessToken);
+  const safeName = String(name || "").replace(/'/g, "\\'");
   const response = await drive.files.list({
-    q: `'${parentId}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder' and name = '${name.replace(/'/g, "\\'")}'`,
+    q: `'${parentId}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder' and name = '${safeName}'`,
     fields: "files(id,name,webViewLink)",
     pageSize: 10,
     supportsAllDrives: true,
@@ -21,23 +22,23 @@ export async function findChildFolderByName(parentId, name) {
   return (response.data.files || [])[0] || null;
 }
 
-export async function getGameFolderForPath(team, date, game) {
+export async function getGameFolderForPath(team, date, game, accessToken) {
   const teamFolder = await getTeamFolder(team);
-  const dateFolder = await findChildFolderByName(teamFolder.id, date);
+  const dateFolder = await findChildFolderByName(teamFolder.id, date, accessToken);
   if (!dateFolder) {
     throw new Error(`Không tìm thấy folder ngày "${date}" trong Team "${team}".`);
   }
-  const gameFolder = await findChildFolderByName(dateFolder.id, game);
+  const gameFolder = await findChildFolderByName(dateFolder.id, game, accessToken);
   if (!gameFolder) {
     throw new Error(`Không tìm thấy folder Game "${game}" trong đường dẫn "${team} / ${date}".`);
   }
   return gameFolder;
 }
 
-export async function createUniqueSessionFolder(parentId, sessionId) {
-  const existing = await findChildFolderByName(parentId, sessionId);
+export async function createUniqueSessionFolder(parentId, sessionId, accessToken) {
+  const existing = await findChildFolderByName(parentId, sessionId, accessToken);
   const folderName = existing ? `${sessionId}_v${Date.now()}` : sessionId;
-  const drive = await getDrive();
+  const drive = await getDrive(accessToken);
   const response = await drive.files.create({
     requestBody: {
       name: folderName,
@@ -50,10 +51,10 @@ export async function createUniqueSessionFolder(parentId, sessionId) {
   return response.data;
 }
 
-export async function getFolderFromLink(value) {
+export async function getFolderFromLink(value, accessToken) {
   const folderId = extractFolderId(value);
   if (!folderId) throw new Error("Link thư mục hoặc ID trên Sheet không hợp lệ.");
-  const drive = await getDrive();
+  const drive = await getDrive(accessToken);
   const response = await drive.files.get({
     fileId: folderId,
     fields: "id,name,parents,webViewLink",
@@ -62,8 +63,8 @@ export async function getFolderFromLink(value) {
   return response.data;
 }
 
-export async function uploadFileToFolder(folderId, file, sessionId, email, fileType) {
-  const drive = await getDrive();
+export async function uploadFileToFolder(folderId, file, sessionId, email, fileType, accessToken) {
+  const drive = await getDrive(accessToken);
   const response = await drive.files.create({
     requestBody: {
       name: file.originalname,
@@ -85,8 +86,8 @@ export async function uploadFileToFolder(folderId, file, sessionId, email, fileT
   return response.data;
 }
 
-export async function listFolderFiles(folderId) {
-  const drive = await getDrive();
+export async function listFolderFiles(folderId, accessToken) {
+  const drive = await getDrive(accessToken);
   const response = await drive.files.list({
     q: `'${folderId}' in parents and trashed = false`,
     fields: "files(id,name,webViewLink,description)",
@@ -106,8 +107,8 @@ export async function listFolderFiles(folderId) {
   });
 }
 
-export async function trashFolder(folderId) {
-  const drive = await getDrive();
+export async function trashFolder(folderId, accessToken) {
+  const drive = await getDrive(accessToken);
   await drive.files.update({
     fileId: folderId,
     requestBody: { trashed: true },
@@ -115,23 +116,13 @@ export async function trashFolder(folderId) {
   });
 }
 
-export async function trashFile(fileId) {
-  const drive = await getDrive();
+export async function trashFile(fileId, accessToken) {
+  const drive = await getDrive(accessToken);
   await drive.files.update({
     fileId,
     requestBody: { trashed: true },
     supportsAllDrives: true,
   });
-}
-
-export async function getFile(fileId) {
-  const drive = await getDrive();
-  const response = await drive.files.get({
-    fileId,
-    fields: "id,name,parents,webViewLink,description",
-    supportsAllDrives: true,
-  });
-  return response.data;
 }
 
 function parseDescription(description) {

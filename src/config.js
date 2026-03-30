@@ -4,6 +4,7 @@ export const config = {
   assignmentSheet: process.env.ASSIGNMENT_SHEET || "Danh sách Phân việc",
   deleteLogSheet: process.env.DELETE_LOG_SHEET || "Delete_Log",
   uploadLogSheet: process.env.UPLOAD_LOG_SHEET || "Upload Logs",
+  googleClientId: process.env.GOOGLE_CLIENT_ID || "",
   teamOptions: (process.env.TEAM_OPTIONS || "Tuấn Anh,CTV,CTV Offline,anh Giang")
     .split(",")
     .map((item) => item.trim())
