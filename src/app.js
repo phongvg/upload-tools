@@ -19,7 +19,6 @@ import {
   listFolderFiles,
   trashFolder,
   trashFile,
-  getFile,
 } from "./services/drive.js";
 import { classifyUploadedFiles, getDateOptions, normalizeString } from "./utils.js";
 
@@ -27,6 +26,9 @@ const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const CACHE_TTL_MS = 60 * 1000;
+const batchMapCache = { value: null, expiresAt: 0 };
+const sessionCache = new Map();
 
 app.use(express.json({ limit: "20mb" }));
 app.use(express.static(path.join(__dirname, "..", "public")));
@@ -44,7 +46,7 @@ app.get("/api/batches", async (req, res) => {
   const startedAt = Date.now();
   try {
     const team = normalizeString(req.query.team);
-    const map = await getBatchMap();
+    const map = await getCachedBatchMap();
     res.json({
       ok: true,
       batches: map[team] || [],
@@ -61,7 +63,7 @@ app.get("/api/sessions", async (req, res) => {
     const team = normalizeString(req.query.team);
     const batch = normalizeString(req.query.batch);
     const mode = normalizeString(req.query.mode);
-    const records = await getBatchListRecords(batch, team);
+    const records = await getCachedSessionRecords(batch, team);
     const filtered = records.filter((record) => (mode === "edit" ? record.hasDriver : !record.hasDriver));
     res.json({
       ok: true,
@@ -113,7 +115,7 @@ app.post("/api/upload", upload.fields([{ name: "csv", maxCount: 1 }, { name: "mp
     const team = normalizeString(req.body.team);
     const batch = normalizeString(req.body.batch);
     const selectedDate = normalizeString(req.body.selectedDate);
-    const selectedGame = normalizeString(req.body.selectedGame);
+    const selectedGame = normalizeString(req.body.selectedGame) || "GTA";
     const sessionId = normalizeString(req.body.sessionId);
 
     const record = await findBatchRecord(batch, sessionId, team);
@@ -132,21 +134,14 @@ app.post("/api/upload", upload.fields([{ name: "csv", maxCount: 1 }, { name: "mp
 
     const files = [...(req.files?.csv || []), ...(req.files?.mp4 || [])];
     const fileMap = classifyUploadedFiles(files);
-
-    let targetParent;
-    let oldDriverLink = "";
-    if (mode === "add") {
-      targetParent = await getGameFolderForPath(team, selectedDate, selectedGame);
-    } else {
-      const currentFolder = await getFolderFromLink(record.driverLink);
-      oldDriverLink = currentFolder.webViewLink || record.driverLink;
-      targetParent = { id: currentFolder.parents[0] };
-    }
+    const targetParent = await getGameFolderForPath(team, selectedDate, selectedGame);
+    const oldDriverLink = record.driverLink || "";
 
     const sessionFolder = await createUniqueSessionFolder(targetParent.id, sessionId);
     const createdCsv = await uploadFileToFolder(sessionFolder.id, fileMap.csv, sessionId, "", "csv");
     const createdMp4 = await uploadFileToFolder(sessionFolder.id, fileMap.mp4, sessionId, "", "mp4");
     await updateDriverLink(batch, record.rowNumber, sessionFolder.webViewLink);
+    clearSessionCache(batch, team);
 
     await ensureUploadLogSheet();
     await appendRow(config.uploadLogSheet, [
@@ -188,6 +183,7 @@ app.post("/api/upload", upload.fields([{ name: "csv", maxCount: 1 }, { name: "mp
       ok: true,
       result: {
         sessionId,
+        rowNumber: record.rowNumber,
         oldDriverLink,
         newDriverLink: sessionFolder.webViewLink,
       },
@@ -215,6 +211,7 @@ app.post("/api/delete-file", async (req, res) => {
 app.post("/api/delete-uploaded-session", async (req, res) => {
   try {
     const batch = normalizeString(req.body.batch);
+    const team = normalizeString(req.body.team);
     const sessionId = normalizeString(req.body.sessionId);
     const newDriverLink = normalizeString(req.body.newDriverLink);
     const restoreMode = normalizeString(req.body.restoreMode) || "clear";
@@ -229,6 +226,7 @@ app.post("/api/delete-uploaded-session", async (req, res) => {
     const folder = await getFolderFromLink(newDriverLink);
     await trashFolder(folder.id);
     await updateDriverLink(batch, recordRowNumber, restoreMode === "old" ? oldDriverLink : "");
+    clearSessionCache(batch, team);
 
     res.json({
       ok: true,
@@ -259,7 +257,31 @@ function ensureUploadLogSheet() {
   ]);
 }
 
+async function getCachedBatchMap() {
+  if (batchMapCache.value && batchMapCache.expiresAt > Date.now()) {
+    return batchMapCache.value;
+  }
+  const value = await getBatchMap();
+  batchMapCache.value = value;
+  batchMapCache.expiresAt = Date.now() + CACHE_TTL_MS;
+  return value;
+}
+
+async function getCachedSessionRecords(batch, team) {
+  const key = `${team}||${batch}`;
+  const hit = sessionCache.get(key);
+  if (hit && hit.expiresAt > Date.now()) {
+    return hit.value;
+  }
+  const value = await getBatchListRecords(batch, team);
+  sessionCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+  return value;
+}
+
+function clearSessionCache(batch, team) {
+  sessionCache.delete(`${team}||${batch}`);
+}
+
 app.listen(config.port, () => {
-  // eslint-disable-next-line no-console
   console.log(`upload-tools-cloud listening on ${config.port}`);
 });

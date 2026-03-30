@@ -1,19 +1,18 @@
 <!doctype html>
 <html>
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Upload Tools Cloud</title>
+    <base target="_top" />
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
     />
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <style>
       body {
         padding: 24px;
         background: linear-gradient(180deg, #eef4ff 0%, #f6f8fc 100%);
       }
-      .app {
+      .upload-container {
         max-width: 1120px;
         margin: auto;
         background: #fff;
@@ -28,203 +27,2076 @@
         padding: 18px;
         margin-bottom: 20px;
       }
-      .status-box {
-        white-space: pre-wrap;
+      .session-card {
+        background: #fff;
+        border: 1px solid #dce6f5;
+        border-radius: 12px;
+        padding: 16px;
+        margin-top: 12px;
+      }
+      .session-card + .session-card {
+        margin-top: 14px;
+      }
+      .folder-files {
+        margin-top: 12px;
+        border-top: 1px solid #e8eef8;
+        padding-top: 12px;
+      }
+      .folder-file-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid #eef3fb;
+      }
+      .folder-file-meta {
+        font-size: 12px;
+        color: #6c757d;
+      }
+      .tiny-note {
+        font-size: 12px;
+        color: #6c757d;
       }
       .batch-select {
         min-height: 180px;
       }
+      .empty-state {
+        border: 1px dashed #c5d6f5;
+        border-radius: 12px;
+        padding: 16px;
+        color: #5f6f86;
+        background: #fff;
+      }
+      .drop-zone {
+        border: 2px dashed #b8caea;
+        border-radius: 12px;
+        padding: 18px;
+        background: #f8fbff;
+        text-align: center;
+        transition:
+          border-color 0.2s ease,
+          background 0.2s ease;
+      }
+      .drop-zone.is-over {
+        border-color: #0d6efd;
+        background: #eef5ff;
+      }
+      .status-box {
+        white-space: pre-wrap;
+      }
+      .progress {
+        height: 10px;
+      }
+      .nav-tabs .nav-link {
+        font-weight: 600;
+      }
+      .session-toggle {
+        min-width: 120px;
+      }
+      .session-details-wrap {
+        border-top: 1px solid #e8eef8;
+        padding-top: 14px;
+      }
     </style>
   </head>
   <body>
-    <div class="app">
-      <h3 class="text-center text-primary mb-4">Upload Tools Cloud</h3>
-      <div class="panel-box">
+    <div class="upload-container">
+      <h3 class="text-center text-primary mb-4">Tbrain-Upload System</h3>
+
+      <ul class="nav nav-tabs mb-4" id="mainTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button
+            class="nav-link active"
+            id="add-tab"
+            data-bs-toggle="tab"
+            data-bs-target="#add-pane"
+            type="button"
+            role="tab"
+          >
+            Tạo mới
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button
+            class="nav-link"
+            id="edit-tab"
+            data-bs-toggle="tab"
+            data-bs-target="#edit-pane"
+            type="button"
+            role="tab"
+          >
+            Chỉnh sửa
+          </button>
+        </li>
+      </ul>
+
+      <div class="tab-content">
+        <div class="tab-pane fade show active" id="add-pane" role="tabpanel">
+          <form id="addForm">
+            <input type="hidden" name="uploadMode" value="add" />
+            <input type="hidden" name="selectedTeam" id="addSelectedTeam" />
+            <input type="hidden" name="selectedBatch" id="addSelectedBatch" />
+            <input type="hidden" name="selectedDate" id="addSelectedDate" />
+            <input type="hidden" name="selectedGame" id="addSelectedGame" />
+            <input type="hidden" name="uploadManifest" id="addUploadManifest" />
+
+            <div class="panel-box">
+              <div class="row">
+                <div class="col-md-3 mb-3">
+                  <label class="form-label fw-bold">Team</label>
+                  <select id="addTeam" class="form-select"></select>
+                </div>
+                <div class="col-md-3 mb-3">
+                  <label class="form-label fw-bold">Tìm Batch</label>
+                  <input
+                    type="text"
+                    id="addBatchSearch"
+                    class="form-control"
+                    placeholder="Tìm Batch..."
+                  />
+                </div>
+                <div class="col-md-3 mb-3">
+                  <label class="form-label fw-bold">Ngày</label>
+                  <select id="addDate" class="form-select"></select>
+                </div>
+                <div class="col-md-3 mb-3">
+                  <label class="form-label fw-bold">Game</label>
+                  <select id="addGame" class="form-select"></select>
+                </div>
+              </div>
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label fw-bold">Batch</label>
+                  <select
+                    id="addBatch"
+                    class="form-select batch-select"
+                    size="7"
+                  ></select>
+                  <div class="tiny-note mt-2">
+                    Batch lấy từ sheet <code>Danh sách Phân việc</code>, lọc
+                    theo Team.
+                  </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <div
+                    id="addMetaStatus"
+                    class="alert alert-info status-box mb-0"
+                  >
+                    Đang tải...
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-box">
+              <div class="mb-3">
+                <div class="fw-bold mb-2">Upload Nhiều Folder</div>
+                <div
+                  id="addBulkDropZone"
+                  class="drop-zone"
+                  role="button"
+                  tabindex="0"
+                >
+                  <div class="fw-bold text-primary">
+                    Thả nhiều folder SessionID vào đây
+                  </div>
+                  <div class="tiny-note mt-2">
+                    Mỗi folder sẽ được match bằng tên folder với SessionID
+                    available trong batch.
+                  </div>
+                  <div class="tiny-note mt-2">
+                    Click vào đây để chọn folder, hoặc kéo thả nhiều folder vào
+                    đây.
+                  </div>
+                </div>
+                <input
+                  type="file"
+                  id="addBulkFolderPicker"
+                  class="d-none"
+                  webkitdirectory
+                  directory
+                  multiple
+                />
+                <div
+                  id="addBulkStatus"
+                  class="alert d-none status-box mt-3 mb-0"
+                ></div>
+              </div>
+              <div
+                class="d-flex justify-content-between align-items-center mb-3"
+              >
+                <div>
+                  <div class="fw-bold">Danh sách Upload Session</div>
+                  <div class="tiny-note">
+                    Mỗi SessionID cần đúng 2 file: 1 CSV và 1 MP4.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-outline-primary"
+                  onclick="addUploadRow('add')"
+                >
+                  + SessionID
+                </button>
+              </div>
+              <div id="addRows" class="mb-3"></div>
+              <div id="addEmpty" class="empty-state">
+                Chưa có SessionID nào được thêm.
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <div class="tab-pane fade" id="edit-pane" role="tabpanel">
+          <form id="editForm">
+            <input type="hidden" name="uploadMode" value="edit" />
+            <input type="hidden" name="selectedTeam" id="editSelectedTeam" />
+            <input type="hidden" name="selectedBatch" id="editSelectedBatch" />
+            <input type="hidden" name="selectedDate" id="editSelectedDate" />
+            <input type="hidden" name="selectedGame" id="editSelectedGame" />
+            <input
+              type="hidden"
+              name="uploadManifest"
+              id="editUploadManifest"
+            />
+
+            <div class="panel-box">
+              <div class="row">
+                <div class="col-md-3 mb-3">
+                  <label class="form-label fw-bold">Team</label>
+                  <select id="editTeam" class="form-select"></select>
+                </div>
+                <div class="col-md-3 mb-3">
+                  <label class="form-label fw-bold">Tìm Batch</label>
+                  <input
+                    type="text"
+                    id="editBatchSearch"
+                    class="form-control"
+                    placeholder="Tìm Batch..."
+                  />
+                </div>
+                <div class="col-md-3 mb-3">
+                  <label class="form-label fw-bold">Ngày</label>
+                  <select id="editDate" class="form-select"></select>
+                </div>
+                <div class="col-md-3 mb-3">
+                  <label class="form-label fw-bold">Game</label>
+                  <select id="editGame" class="form-select"></select>
+                </div>
+              </div>
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label fw-bold">Batch</label>
+                  <select
+                    id="editBatch"
+                    class="form-select batch-select"
+                    size="7"
+                  ></select>
+                  <div class="tiny-note mt-2">
+                    Batch lấy từ sheet <code>Danh sách Phân việc</code>, lọc
+                    theo Team.
+                  </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <div
+                    id="editMetaStatus"
+                    class="alert alert-info status-box mb-0"
+                  >
+                    Đang tải...
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-box">
+              <div class="mb-3">
+                <div class="fw-bold mb-2">Upload Nhiều Folder</div>
+                <div
+                  id="editBulkDropZone"
+                  class="drop-zone"
+                  role="button"
+                  tabindex="0"
+                >
+                  <div class="fw-bold text-primary">
+                    Thả nhiều folder SessionID vào đây
+                  </div>
+                  <div class="tiny-note mt-2">
+                    Tên folder phải trùng SessionID available của batch hiện
+                    tại.
+                  </div>
+                  <div class="tiny-note mt-2">
+                    Click vào đây để chọn folder, hoặc kéo thả nhiều folder vào
+                    đây.
+                  </div>
+                </div>
+                <input
+                  type="file"
+                  id="editBulkFolderPicker"
+                  class="d-none"
+                  webkitdirectory
+                  directory
+                  multiple
+                />
+                <div
+                  id="editBulkStatus"
+                  class="alert d-none status-box mt-3 mb-0"
+                ></div>
+              </div>
+              <div
+                class="d-flex justify-content-between align-items-center mb-3"
+              >
+                <div>
+                  <div class="fw-bold">Danh sách Upload Session</div>
+                  <div class="tiny-note">
+                    Mỗi SessionID cần đúng 2 file: 1 CSV và 1 MP4.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-outline-primary"
+                  onclick="addUploadRow('edit')"
+                >
+                  + SessionID
+                </button>
+              </div>
+              <div id="editRows" class="mb-3"></div>
+              <div id="editEmpty" class="empty-state">
+                Chưa có SessionID nào được thêm.
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="panel-box mt-4 d-none" id="adminBox">
+        <div class="fw-bold mb-3">Cache Đường Dẫn Cho Admin / Leader</div>
         <div class="row">
           <div class="col-md-3 mb-3">
             <label class="form-label fw-bold">Team</label>
-            <select id="team" class="form-select"></select>
-          </div>
-          <div class="col-md-3 mb-3">
-            <label class="form-label fw-bold">Tìm Batch</label>
-            <input id="batchSearch" class="form-control" placeholder="Tìm Batch..." />
+            <select
+              id="cacheTeam"
+              class="form-select"
+              onchange="loadCachedPath()"
+            ></select>
           </div>
           <div class="col-md-3 mb-3">
             <label class="form-label fw-bold">Ngày</label>
-            <select id="date" class="form-select"></select>
+            <input
+              type="text"
+              class="form-control"
+              id="cacheDate"
+              placeholder="Ví dụ: March 29"
+            />
           </div>
           <div class="col-md-3 mb-3">
             <label class="form-label fw-bold">Game</label>
-            <select id="game" class="form-select"></select>
+            <input
+              type="text"
+              class="form-control"
+              id="cacheGame"
+              placeholder="Ví dụ: GTA"
+            />
+          </div>
+          <div class="col-md-3 mb-3 d-flex align-items-end">
+            <button
+              type="button"
+              class="btn btn-outline-secondary w-100"
+              onclick="loadCachedPath()"
+            >
+              Tải đường dẫn đã lưu
+            </button>
           </div>
         </div>
-        <div class="row">
-          <div class="col-md-6">
-            <label class="form-label fw-bold">Batch</label>
-            <select id="batch" class="form-select batch-select" size="7"></select>
-          </div>
-          <div class="col-md-6">
-            <div id="status" class="alert alert-info status-box mb-0">Đang tải...</div>
-          </div>
+        <div class="mb-3">
+          <label class="form-label fw-bold">Link thư mục</label>
+          <input type="text" class="form-control" id="cacheFolderLink" />
         </div>
-      </div>
-      <div class="panel-box">
-        <div class="row">
-          <div class="col-md-6 mb-3">
-            <label class="form-label fw-bold">Mode</label>
-            <select id="mode" class="form-select">
-              <option value="add">Tạo mới</option>
-              <option value="edit">Chỉnh sửa</option>
-            </select>
-          </div>
-          <div class="col-md-6 mb-3">
-            <label class="form-label fw-bold">SessionID</label>
-            <select id="session" class="form-select"></select>
-          </div>
-        </div>
-        <div class="row">
-          <div class="col-md-6 mb-3">
-            <label class="form-label fw-bold">CSV</label>
-            <input id="csv" type="file" class="form-control" accept=".csv" />
-          </div>
-          <div class="col-md-6 mb-3">
-            <label class="form-label fw-bold">MP4</label>
-            <input id="mp4" type="file" class="form-control" accept=".mp4" />
-          </div>
-        </div>
-        <div class="d-flex gap-2">
-          <button id="uploadBtn" class="btn btn-primary">Upload</button>
-        </div>
-        <div id="result" class="alert d-none status-box mt-3 mb-0"></div>
+        <button
+          type="button"
+          id="saveCacheBtn"
+          class="btn btn-outline-primary"
+          onclick="savePathCache()"
+        >
+          Save Cache
+        </button>
+        <div id="adminStatus" class="alert d-none status-box mt-3 mb-0"></div>
       </div>
     </div>
+
     <script>
-      const state = { batches: [], records: [] };
+      const state = {
+        add: createModeState("add"),
+        edit: createModeState("edit"),
+      };
+      
+      window.onload = function () {
+        bindModeEvents("add");
+        bindModeEvents("edit");
+        loadInitialData();
+      };
 
-      window.addEventListener("load", async () => {
-        const res = await fetch("/api/bootstrap").then((r) => r.json());
-        populateSelect("team", ["", ...(res.teams || [])], "-");
-        populateSelect("date", res.dateOptions || []);
-        populateSelect("game", res.games || []);
-        const dates = res.dateOptions || [];
-        if (dates.length > 1) {
-          document.getElementById("date").value = dates[dates.length - 2];
+      function createModeState(mode) {
+        return {
+          mode,
+          team: "",
+          batch: "",
+          searchQuery: "",
+          batchOptions: [],
+          records: [],
+          recordsLoaded: false,
+          rowCounter: 0,
+          rows: [],
+          debounceTimer: null,
+        };
+      }
+
+      function bindModeEvents(mode) {
+        document
+          .getElementById(mode + "Team")
+          .addEventListener("change", () => {
+            onTeamChange(mode);
+          });
+
+        document
+          .getElementById(mode + "Batch")
+          .addEventListener("change", () => {
+            onBatchChange(mode);
+          });
+
+        const dateSelect = document.getElementById(mode + "Date");
+        const gameSelect = document.getElementById(mode + "Game");
+        bindBulkDropZone(mode);
+        if (dateSelect) {
+          dateSelect.addEventListener("change", () => {
+            document.getElementById(mode + "SelectedDate").value =
+              dateSelect.value;
+            updateMetaStatus(mode);
+          });
         }
-        document.getElementById("status").innerText = "Chọn Team để tải danh sách Batch.";
-      });
+        if (gameSelect) {
+          gameSelect.addEventListener("change", () => {
+            document.getElementById(mode + "SelectedGame").value =
+              gameSelect.value;
+            updateMetaStatus(mode);
+          });
+        }
 
-      document.getElementById("team").addEventListener("change", loadBatches);
-      document.getElementById("batch").addEventListener("change", loadSessions);
-      document.getElementById("batchSearch").addEventListener("input", renderBatches);
-      document.getElementById("mode").addEventListener("change", renderSessions);
-      document.getElementById("uploadBtn").addEventListener("click", uploadSession);
+        const bulkPicker = document.getElementById(mode + "BulkFolderPicker");
+        if (bulkPicker) {
+          bulkPicker.addEventListener("change", (event) => {
+            handleBulkFolderFiles(mode, Array.from(event.target.files || []));
+            event.target.value = "";
+          });
+        }
 
-      function populateSelect(id, values, placeholder) {
-        const select = document.getElementById(id);
-        select.innerHTML = "";
-        if (placeholder !== undefined) {
+        document
+          .getElementById(mode + "BatchSearch")
+          .addEventListener("input", (event) => {
+            clearTimeout(state[mode].debounceTimer);
+            state[mode].debounceTimer = setTimeout(() => {
+              state[mode].searchQuery = event.target.value.trim().toLowerCase();
+              renderBatchOptions(mode);
+            }, 250);
+          });
+      }
+
+      async function loadInitialData() {
+        try {
+          const res = await apiGet("/api/bootstrap");
+          if (!res || !res.ok) {
+            throw new Error(res && res.message ? res.message : "Không thể tải dữ liệu khởi tạo.");
+          }
+          const opts = res.dateOptions || [];
+          populateFilterSelect("addDate", opts, false);
+          populateFilterSelect("addGame", res.games || ["GTA"], false);
+          populateFilterSelect("editDate", opts, false);
+          populateFilterSelect("editGame", res.games || ["GTA"], false);
+          const today = formatTodayOption();
+          const defaultDate = opts.includes(today)
+            ? today
+            : opts && opts.length
+              ? opts[Math.max(opts.length - 2, 0)]
+              : "";
+          if (defaultDate) {
+            document.getElementById("addDate").value = defaultDate;
+            document.getElementById("editDate").value = defaultDate;
+          }
+          document.getElementById("addSelectedDate").value =
+            document.getElementById("addDate").value || "";
+          document.getElementById("addSelectedGame").value =
+            document.getElementById("addGame").value || "GTA";
+          document.getElementById("editSelectedDate").value =
+            document.getElementById("editDate").value || "";
+          document.getElementById("editSelectedGame").value =
+            document.getElementById("editGame").value || "GTA";
+          populateTeams(res.teams || []);
+          updateMetaStatus("add", "Chọn Team để tải danh sách Batch.");
+          updateMetaStatus("edit", "Chọn Team để tải danh sách Batch.");
+          const adminBox = document.getElementById("adminBox");
+          if (adminBox) adminBox.classList.add("d-none");
+        } catch (err) {
+          const message = "Lỗi khi tải danh sách tùy chọn: " + normalizeError(err);
+          showModeStatus("add", false, message);
+          showModeStatus("edit", false, message);
+        }
+      }
+
+      function populateTeams(teams) {
+        ["add", "edit", "cache"].forEach((prefix) => {
+          const select = document.getElementById(prefix + "Team");
+          if (!select) return;
+          select.innerHTML = "";
+          const placeholder =
+            prefix === "cache" ? "Chọn Team..." : "-";
           select.add(new Option(placeholder, ""));
-        }
-        values.forEach((value) => {
-          if (!value) return;
-          select.add(new Option(value, value));
+          teams.forEach((team) => select.add(new Option(team, team)));
         });
       }
 
-      async function loadBatches() {
-        const team = document.getElementById("team").value;
-        state.batches = [];
-        state.records = [];
-        populateSelect("batch", [], "Chọn Batch...");
-        populateSelect("session", [], "Chọn SessionID...");
-        if (!team) {
-          document.getElementById("status").innerText = "Chọn Team để tải danh sách Batch.";
-          return;
+      function onTeamChange(mode) {
+        const modeState = state[mode];
+        modeState.team = document.getElementById(mode + "Team").value;
+        modeState.batch = "";
+        modeState.records = [];
+        modeState.recordsLoaded = false;
+        modeState.rows = [];
+        document.getElementById(mode + "SelectedTeam").value = modeState.team;
+        document.getElementById(mode + "SelectedBatch").value = "";
+        if (document.getElementById(mode + "SelectedDate")) {
+          document.getElementById(mode + "SelectedDate").value = "";
         }
-        document.getElementById("status").innerText = "Đang tải Batch theo Team...";
-        const startedAt = Date.now();
-        const res = await fetch(`/api/batches?team=${encodeURIComponent(team)}`).then((r) => r.json());
-        if (!res.ok) {
-          document.getElementById("status").innerText = res.message || "Không thể tải danh sách Batch.";
-          return;
+        if (document.getElementById(mode + "SelectedGame")) {
+          document.getElementById(mode + "SelectedGame").value = "";
         }
-        state.batches = res.batches || [];
-        renderBatches();
-        document.getElementById("status").innerText =
-          `Đã tải danh sách Batch.\nClient: ${Date.now() - startedAt}ms\nServer: ${res.debugMs || 0}ms`;
-      }
-
-      function renderBatches() {
-        const query = (document.getElementById("batchSearch").value || "").toLowerCase();
-        const filtered = state.batches.filter((item) => item.toLowerCase().includes(query));
-        populateSelect("batch", filtered, "Chọn Batch...");
-      }
-
-      async function loadSessions() {
-        const team = document.getElementById("team").value;
-        const batch = document.getElementById("batch").value;
-        const mode = document.getElementById("mode").value;
-        state.records = [];
-        populateSelect("session", [], "Chọn SessionID...");
-        if (!team || !batch) {
-          document.getElementById("status").innerText = "Chọn Batch để tải danh sách Session.";
-          return;
-        }
-        document.getElementById("status").innerText = "Đang tải danh sách Session...";
-        const startedAt = Date.now();
-        const params = new URLSearchParams({ team, batch, mode });
-        const res = await fetch(`/api/sessions?${params.toString()}`).then((r) => r.json());
-        if (!res.ok) {
-          document.getElementById("status").innerText = res.message || "Không thể tải danh sách Session.";
-          return;
-        }
-        state.records = res.records || [];
-        renderSessions();
-        document.getElementById("status").innerText =
-          `Đã tải danh sách Session.\nClient: ${Date.now() - startedAt}ms\nServer: ${res.debugMs || 0}ms`;
-      }
-
-      function renderSessions() {
-        const values = state.records.map((item) => item.sessionId);
-        populateSelect("session", values, "Chọn SessionID...");
-      }
-
-      async function uploadSession() {
-        const team = document.getElementById("team").value;
-        const batch = document.getElementById("batch").value;
-        const mode = document.getElementById("mode").value;
-        const selectedDate = document.getElementById("date").value;
-        const selectedGame = document.getElementById("game").value;
-        const sessionId = document.getElementById("session").value;
-        const csv = document.getElementById("csv").files[0];
-        const mp4 = document.getElementById("mp4").files[0];
-
-        if (!team || !batch || !sessionId || !csv || !mp4) {
-          showResult(false, "Thiếu dữ liệu upload.");
+        document.getElementById(mode + "UploadManifest").value = "";
+        document.getElementById(mode + "Rows").innerHTML = "";
+        toggleEmptyState(mode);
+        resetFilters(mode);
+        if (!modeState.team) {
+          modeState.batchOptions = [];
+          renderBatchOptions(mode);
+          updateMetaStatus(mode, "Chọn Team để tải danh sách Batch.");
           return;
         }
 
-        const formData = new FormData();
-        formData.set("mode", mode);
-        formData.set("team", team);
-        formData.set("batch", batch);
-        formData.set("selectedDate", selectedDate);
-        formData.set("selectedGame", selectedGame);
-        formData.set("sessionId", sessionId);
-        formData.set("csv", csv);
-        formData.set("mp4", mp4);
-
-        showResult(true, "Đang upload...");
-        const res = await fetch("/api/upload", { method: "POST", body: formData }).then((r) => r.json());
-        showResult(!!res.ok, res.message || "Đã xử lý xong yêu cầu.");
+        updateMetaStatus(mode, "Đang tải Batch theo Team...");
+        const requestStartedAt = Date.now();
+        apiGet("/api/batches", { team: modeState.team })
+          .then((res) => {
+            if (!res || !res.ok) {
+              modeState.batchOptions = [];
+              renderBatchOptions(mode);
+              updateMetaStatus(
+                mode,
+                res && res.message ? res.message : "Không thể tải danh sách Batch.",
+                true,
+              );
+              return;
+            }
+            modeState.batchOptions = res.batches || [];
+            renderBatchOptions(mode);
+            const clientMs = Date.now() - requestStartedAt;
+            const serverMs = res && typeof res.debugMs === "number" ? res.debugMs : null;
+            updateMetaStatus(
+              mode,
+              "Đã tải danh sách Batch." +
+                "\nClient: " +
+                clientMs +
+                "ms" +
+                (serverMs !== null ? "\nServer: " + serverMs + "ms" : ""),
+            );
+          })
+          .catch((err) => {
+            modeState.batchOptions = [];
+            renderBatchOptions(mode);
+            updateMetaStatus(
+              mode,
+              "Lỗi khi tải danh sách Batch: " + normalizeError(err),
+              true,
+            );
+          });
       }
 
-      function showResult(ok, message) {
-        const box = document.getElementById("result");
-        box.className = `alert ${ok ? "alert-success" : "alert-danger"} status-box mt-3 mb-0`;
+      function renderBatchOptions(mode) {
+        const modeState = state[mode];
+        const select = document.getElementById(mode + "Batch");
+        const query = modeState.searchQuery || "";
+        const filtered = modeState.batchOptions.filter((batch) =>
+          batch.toLowerCase().includes(query),
+        );
+
+        const previous = modeState.batch;
+        select.innerHTML = "";
+        select.add(new Option("Chọn Batch...", ""));
+        filtered.forEach((batch) => select.add(new Option(batch, batch)));
+
+        if (filtered.includes(previous)) {
+          select.value = previous;
+        } else {
+          modeState.batch = "";
+          select.value = "";
+        }
+
+        if (modeState.batch) {
+          updateMetaStatus(mode);
+        } else {
+          modeState.records = [];
+          document.getElementById(mode + "SelectedBatch").value = "";
+          resetFilters(mode);
+          refreshSessionOptions(mode);
+          if (!modeState.batchOptions.length) {
+            updateMetaStatus(
+              mode,
+              "Không có Batch nào cho Team hiện tại.",
+              true,
+            );
+          } else if (query && !filtered.length) {
+            updateMetaStatus(
+              mode,
+              "Không có Batch phù hợp với từ khóa hiện tại.",
+              true,
+            );
+          } else {
+            updateMetaStatus(mode, "Chọn Batch để tải danh sách Session.");
+          }
+        }
+      }
+
+      function onBatchChange(mode) {
+        const modeState = state[mode];
+        const batch = document.getElementById(mode + "Batch").value;
+        modeState.batch = batch;
+        modeState.recordsLoaded = false;
+        document.getElementById(mode + "SelectedBatch").value = batch;
+        modeState.records = [];
+        clearRows(mode);
+
+        if (!batch) {
+          resetFilters(mode);
+          refreshSessionOptions(mode);
+          updateMetaStatus(mode, "Chưa chọn Batch.", true);
+          return;
+        }
+
+        updateMetaStatus(mode, "Đang tải dữ liệu...");
+        showModeStatus(mode, true, "Đang tải dữ liệu...");
+        const requestStartedAt = Date.now();
+        apiGet("/api/sessions", {
+          team: modeState.team,
+          batch,
+          mode,
+        })
+          .then((res) => {
+            if (!res || !res.ok) {
+              modeState.records = [];
+              modeState.recordsLoaded = false;
+              resetFilters(mode);
+              refreshSessionOptions(mode);
+              updateMetaStatus(
+                mode,
+                res && res.message ? res.message : "Không thể tải dữ liệu Batch.",
+                true,
+              );
+              return;
+            }
+            modeState.records = res.records || [];
+            modeState.recordsLoaded = true;
+            refreshSessionOptions(mode);
+            const clientMs = Date.now() - requestStartedAt;
+            const serverMs = res && typeof res.debugMs === "number" ? res.debugMs : null;
+            updateMetaStatus(
+              mode,
+              [
+                "Đã tải danh sách Session.",
+                "Client: " + clientMs + "ms",
+                serverMs !== null ? "Server: " + serverMs + "ms" : "",
+              ]
+                .filter(Boolean)
+                .join("\n"),
+            );
+          })
+          .catch((err) => {
+            modeState.records = [];
+            modeState.recordsLoaded = false;
+            refreshSessionOptions(mode);
+            updateMetaStatus(
+              mode,
+              "Lỗi khi tải dữ liệu Batch: " + normalizeError(err),
+              true,
+            );
+          });
+      }
+
+      function resetFilters(mode) {
+        const dateField = document.getElementById(mode + "Date");
+        const gameField = document.getElementById(mode + "Game");
+        const selectedDateField = document.getElementById(
+          mode + "SelectedDate",
+        );
+        const selectedGameField = document.getElementById(
+          mode + "SelectedGame",
+        );
+        if (selectedDateField) {
+          selectedDateField.value = dateField ? dateField.value : "";
+        }
+        if (selectedGameField) {
+          selectedGameField.value = gameField ? gameField.value : "GTA";
+        }
+      }
+
+      function populateFilterSelect(id, values, includeAll) {
+        const select = document.getElementById(id);
+        if (!select) return;
+        select.innerHTML = "";
+        if (includeAll !== false) {
+          select.add(new Option("Tất cả", "All"));
+        }
+        values.forEach((value) => select.add(new Option(value, value)));
+        if (select.options.length > 0) {
+          select.value = select.options[0].value;
+        }
+      }
+
+      function getFilteredRecords(mode) {
+        return state[mode].records.slice();
+      }
+
+      function getAvailableSessions(mode, currentKey) {
+        const selectedElsewhere = new Set(
+          state[mode].rows
+            .filter((row) => row.key !== currentKey)
+            .map((row) => {
+              const select = document.getElementById(row.selectId);
+              return select ? select.value : "";
+            })
+            .filter(Boolean),
+        );
+
+        return getFilteredRecords(mode)
+          .map((record) => record.sessionId)
+          .filter((sessionId) => !selectedElsewhere.has(sessionId));
+      }
+
+      function isDuplicateSessionSelected(mode, sessionId, currentKey) {
+        return state[mode].rows.some((row) => {
+          if (row.key === currentKey) return false;
+          const select = document.getElementById(row.selectId);
+          return select && select.value === sessionId;
+        });
+      }
+
+      function addUploadRow(mode, preferredSessionId) {
+        if (!state[mode].batch) {
+          showModeStatus(
+            mode,
+            false,
+            "Chọn Team và Batch trước khi thêm SessionID.",
+          );
+          return;
+        }
+
+        const available = getAvailableSessions(mode, null);
+        if (!available.length) {
+          showModeStatus(
+            mode,
+            false,
+            "Không còn SessionID phù hợp với filter hiện tại.",
+          );
+          return;
+        }
+
+        const modeState = state[mode];
+        modeState.rowCounter += 1;
+        const key = mode + "_" + modeState.rowCounter;
+        const row = {
+          key,
+          csvField: "csv_" + key,
+          mp4Field: "mp4_" + key,
+          searchId: "session_search_" + key,
+          selectId: "session_" + key,
+          detailsId: "details_" + key,
+          fileListId: "file_list_" + key,
+          dropZoneId: "drop_zone_" + key,
+          folderPickerId: "folder_picker_" + key,
+          filesPickerId: "files_picker_" + key,
+          removeBtnId: "remove_btn_" + key,
+          toggleBtnId: "toggle_btn_" + key,
+          detailsWrapId: "details_wrap_" + key,
+          statusId: "status_" + key,
+          progressId: "progress_" + key,
+          progressBarId: "progress_bar_" + key,
+          searchQuery: "",
+          debounceTimer: null,
+          uploadMeta: null,
+          progressTimer: null,
+        };
+        modeState.rows.push(row);
+
+        const container = document.getElementById(mode + "Rows");
+        const wrapper = document.createElement("div");
+        wrapper.className = "session-card";
+        wrapper.id = "card_" + key;
+        wrapper.innerHTML = `
+          <div class="row align-items-start">
+            <div class="col-md-4 mb-3">
+              <label class="form-label fw-bold">Tìm SessionID</label>
+              <input
+                type="text"
+                id="${row.searchId}"
+                class="form-control mb-2"
+                placeholder="Nhập để lọc SessionID..."
+              />
+              <label class="form-label fw-bold">SessionID</label>
+              <select id="${row.selectId}" class="form-select"></select>
+            </div>
+            <div class="col-md-6 mb-3">
+              <label class="form-label fw-bold">Khu vực upload</label>
+              <div id="${row.dropZoneId}" class="drop-zone" role="button" tabindex="0">
+                <div class="fw-bold text-primary">Thả 1 folder hoặc 2 file vào đây</div>
+                <div class="tiny-note mt-2">
+                  Folder mode: tên folder phải trùng SessionID.
+                </div>
+                <div class="tiny-note">
+                  File mode: chọn đúng 1 CSV và 1 MP4.
+                </div>
+                <div class="tiny-note mt-2">
+                  Click vào đây để chọn folder. Khi hợp lệ, hệ thống sẽ upload ngay.
+                </div>
+              </div>
+              <input
+                type="file"
+                name="${row.csvField}"
+                id="${row.csvField}"
+                class="d-none"
+                accept=".csv"
+              />
+              <input
+                type="file"
+                name="${row.mp4Field}"
+                id="${row.mp4Field}"
+                class="d-none"
+                accept=".mp4"
+              />
+              <input
+                type="file"
+                id="${row.folderPickerId}"
+                class="d-none"
+                webkitdirectory
+                directory
+                multiple
+              />
+              <input
+                type="file"
+                id="${row.filesPickerId}"
+                class="d-none"
+                multiple
+                accept=".csv,.mp4"
+              />
+              <div id="${row.fileListId}" class="tiny-note mt-2"></div>
+            </div>
+            <div class="col-md-2 mb-3">
+              <div class="d-grid gap-2">
+                <button
+                  type="button"
+                  id="${row.toggleBtnId}"
+                  class="btn btn-outline-secondary session-toggle"
+                  onclick="toggleRowDetails('${mode}', '${key}')"
+                >
+                  Ẩn chi tiết
+                </button>
+                <button
+                  type="button"
+                  id="${row.removeBtnId}"
+                  class="btn btn-outline-danger"
+                  onclick="removeUploadRow('${mode}', '${key}')"
+                >
+                  Xóa Session
+                </button>
+              </div>
+            </div>
+          </div>
+          <div id="${row.detailsWrapId}" class="session-details-wrap">
+            <div id="${row.progressId}" class="progress d-none mb-3">
+              <div
+                id="${row.progressBarId}"
+                class="progress-bar progress-bar-striped progress-bar-animated"
+                role="progressbar"
+                style="width: 0%"
+              >
+                0%
+              </div>
+            </div>
+            <div id="${row.statusId}" class="alert d-none status-box mb-3"></div>
+            <div id="${row.detailsId}" class="tiny-note"></div>
+          </div>
+        `;
+        container.appendChild(wrapper);
+
+        document
+          .getElementById(row.searchId)
+          .addEventListener("input", (event) => {
+            clearTimeout(row.debounceTimer);
+            row.debounceTimer = setTimeout(() => {
+              const normalized = normalizeSessionSearch(event.target.value);
+              event.target.value = normalized;
+              row.searchQuery = normalized;
+              refreshSessionOptions(mode);
+            }, 250);
+          });
+
+        document.getElementById(row.selectId).addEventListener("change", () => {
+          const sessionId = document.getElementById(row.selectId).value;
+          if (sessionId && isDuplicateSessionSelected(mode, sessionId, key)) {
+            showRowStatus(
+              mode,
+              key,
+              false,
+              `SessionID ${sessionId} đã được chọn ở row khác.`,
+            );
+            refreshSessionOptions(mode);
+            return;
+          }
+          refreshSessionOptions(mode);
+          if (mode === "edit") loadRowSessionDetails(mode, key);
+          else renderAddRowHint(mode, key);
+        });
+
+        document
+          .getElementById(row.folderPickerId)
+          .addEventListener("change", (event) => {
+            stageRowFiles(
+              mode,
+              key,
+              Array.from(event.target.files || []),
+              "folder",
+            );
+            event.target.value = "";
+          });
+
+        document
+          .getElementById(row.filesPickerId)
+          .addEventListener("change", (event) => {
+            stageRowFiles(
+              mode,
+              key,
+              Array.from(event.target.files || []),
+              "files",
+            );
+            event.target.value = "";
+          });
+
+        bindDropZone(mode, key);
+
+        refreshSessionOptions(mode);
+        document.getElementById(row.selectId).value =
+          preferredSessionId && available.includes(preferredSessionId)
+            ? preferredSessionId
+            : available[0];
+        if (mode === "edit") loadRowSessionDetails(mode, key);
+        else renderAddRowHint(mode, key);
+        toggleEmptyState(mode);
+        return row;
+      }
+
+      function clearRows(mode) {
+        state[mode].rows = [];
+        document.getElementById(mode + "Rows").innerHTML = "";
+        toggleEmptyState(mode);
+      }
+
+      function removeUploadRow(mode, key) {
+        const row = state[mode].rows.find((item) => item.key === key);
+        if (!row) return;
+
+        if (!row.uploadMeta) {
+          deleteRowCard(mode, key);
+          return;
+        }
+
+        showRowStatus(mode, key, true, "Đang xóa thư mục vừa upload...");
+        apiPostJson("/api/delete-uploaded-session", {
+          mode: mode,
+          batch: state[mode].batch,
+          team: state[mode].team,
+          sessionId: row.uploadMeta.sessionId,
+          rowNumber: row.uploadMeta.rowNumber,
+          oldDriverLink: row.uploadMeta.oldDriverLink || "",
+          newDriverLink: row.uploadMeta.newDriverLink,
+          restoreMode: "clear",
+        })
+          .then((res) => {
+            showRowStatus(
+              mode,
+              key,
+              !!(res && res.ok),
+              res && res.message ? res.message : "Đã xóa thư mục upload.",
+            );
+            if (res && res.ok) {
+              deleteRowCard(mode, key);
+            }
+          })
+          .catch((err) => {
+            showRowStatus(
+              mode,
+              key,
+              false,
+              "Lỗi khi xóa thư mục upload: " + normalizeError(err),
+            );
+          });
+      }
+
+      function deleteRowCard(mode, key) {
+        const rowIndex = state[mode].rows.findIndex((item) => item.key === key);
+        if (rowIndex === -1) return;
+        state[mode].rows.splice(rowIndex, 1);
+        const card = document.getElementById("card_" + key);
+        if (card) card.remove();
+        refreshSessionOptions(mode);
+        toggleEmptyState(mode);
+      }
+
+      function toggleRowDetails(mode, key) {
+        const row = state[mode].rows.find((item) => item.key === key);
+        if (!row) return;
+        const wrap = document.getElementById(row.detailsWrapId);
+        const button = document.getElementById(row.toggleBtnId);
+        if (!wrap || !button) return;
+        const hidden = wrap.classList.toggle("d-none");
+        button.innerText = hidden ? "Hiện chi tiết" : "Ẩn chi tiết";
+      }
+
+      function clearRowFiles(mode, key) {
+        const row = state[mode].rows.find((item) => item.key === key);
+        if (!row) return;
+        const csvInput = document.getElementById(row.csvField);
+        const mp4Input = document.getElementById(row.mp4Field);
+        if (csvInput) csvInput.value = "";
+        if (mp4Input) mp4Input.value = "";
+        resetRowUploadState(row);
+        renderFileSelection(row.fileListId, []);
+        showRowStatus(
+          mode,
+          key,
+          true,
+          "Đã xóa file đã chọn. Bạn có thể kéo thả hoặc chọn lại.",
+        );
+      }
+
+      function toggleEmptyState(mode) {
+        document
+          .getElementById(mode + "Empty")
+          .classList.toggle("d-none", state[mode].rows.length > 0);
+      }
+
+      function refreshSessionOptions(mode) {
+        state[mode].rows.forEach((row) => {
+          const select = document.getElementById(row.selectId);
+          if (!select) return;
+          const current = select.value;
+          const query = row.searchQuery || "";
+          const available = getAvailableSessions(mode, row.key).filter(
+            (sessionId) => !query || sessionId.includes(query),
+          );
+          select.innerHTML = "";
+          available.forEach((sessionId) =>
+            select.add(new Option(sessionId, sessionId)),
+          );
+          if (available.includes(current)) {
+            select.value = current;
+          } else if (available.length) {
+            select.value = available[0];
+          }
+          const searchInput = document.getElementById(row.searchId);
+          if (searchInput && !searchInput.dataset.touched) {
+            searchInput.value = row.searchQuery || "";
+          }
+          if (mode === "edit") loadRowSessionDetails(mode, row.key);
+          else renderAddRowHint(mode, row.key);
+        });
+      }
+
+      function bindDropZone(mode, key) {
+        const row = state[mode].rows.find((item) => item.key === key);
+        if (!row) return;
+        const zone = document.getElementById(row.dropZoneId);
+        if (!zone) return;
+
+        zone.addEventListener("click", () => {
+          document.getElementById(row.folderPickerId).click();
+        });
+        zone.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            document.getElementById(row.folderPickerId).click();
+          }
+        });
+
+        ["dragenter", "dragover"].forEach((eventName) => {
+          zone.addEventListener(eventName, (event) => {
+            event.preventDefault();
+            zone.classList.add("is-over");
+          });
+        });
+
+        ["dragleave", "dragend", "drop"].forEach((eventName) => {
+          zone.addEventListener(eventName, (event) => {
+            event.preventDefault();
+            if (eventName !== "drop") zone.classList.remove("is-over");
+          });
+        });
+
+        zone.addEventListener("drop", async (event) => {
+          zone.classList.remove("is-over");
+          try {
+            const files = await extractDroppedFiles(event.dataTransfer);
+            const inferredMode = inferDropMode(files);
+            stageRowFiles(mode, key, files, inferredMode);
+          } catch (error) {
+            showRowStatus(
+              mode,
+              key,
+              false,
+              "Lỗi khi kéo thả file: " + normalizeError(error),
+            );
+          }
+        });
+      }
+
+      function bindBulkDropZone(mode) {
+        const zone = document.getElementById(mode + "BulkDropZone");
+        if (!zone) return;
+
+        zone.addEventListener("click", () => {
+          document.getElementById(mode + "BulkFolderPicker").click();
+        });
+        zone.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            document.getElementById(mode + "BulkFolderPicker").click();
+          }
+        });
+
+        ["dragenter", "dragover"].forEach((eventName) => {
+          zone.addEventListener(eventName, (event) => {
+            event.preventDefault();
+            zone.classList.add("is-over");
+          });
+        });
+
+        ["dragleave", "dragend", "drop"].forEach((eventName) => {
+          zone.addEventListener(eventName, (event) => {
+            event.preventDefault();
+            if (eventName !== "drop") zone.classList.remove("is-over");
+          });
+        });
+
+        zone.addEventListener("drop", async (event) => {
+          zone.classList.remove("is-over");
+          try {
+            const files = await extractDroppedFiles(event.dataTransfer);
+            handleBulkFolderFiles(mode, files);
+          } catch (error) {
+            showBulkStatus(
+              mode,
+              false,
+              "Lỗi khi kéo thả nhiều folder: " + normalizeError(error),
+            );
+          }
+        });
+      }
+
+      async function extractDroppedFiles(dataTransfer) {
+        const items = Array.from((dataTransfer && dataTransfer.items) || []);
+        if (!items.length) {
+          return Array.from((dataTransfer && dataTransfer.files) || []);
+        }
+
+        const entries = items
+          .map((item) =>
+            item.webkitGetAsEntry ? item.webkitGetAsEntry() : null,
+          )
+          .filter(Boolean);
+        if (!entries.length) {
+          return Array.from((dataTransfer && dataTransfer.files) || []);
+        }
+
+        let files = [];
+        for (const entry of entries) {
+          const entryFiles = await readEntryFiles(entry, "");
+          files = files.concat(entryFiles);
+        }
+        return files;
+      }
+
+      async function readEntryFiles(entry, parentPath) {
+        if (entry.isFile) {
+          return new Promise((resolve, reject) => {
+            entry.file((file) => {
+              try {
+                Object.defineProperty(file, "webkitRelativePath", {
+                  value: parentPath ? parentPath + "/" + file.name : file.name,
+                  configurable: true,
+                });
+              } catch (_) {}
+              resolve([file]);
+            }, reject);
+          });
+        }
+
+        if (entry.isDirectory) {
+          const reader = entry.createReader();
+          const children = await readAllDirectoryEntries(reader);
+          let result = [];
+          for (const child of children) {
+            const childFiles = await readEntryFiles(
+              child,
+              parentPath ? parentPath + "/" + entry.name : entry.name,
+            );
+            result = result.concat(childFiles);
+          }
+          return result;
+        }
+
+        return [];
+      }
+
+      function readAllDirectoryEntries(reader) {
+        return new Promise((resolve, reject) => {
+          const entries = [];
+          const readBatch = () => {
+            reader.readEntries((batch) => {
+              if (!batch.length) {
+                resolve(entries);
+                return;
+              }
+              entries.push(...batch);
+              readBatch();
+            }, reject);
+          };
+          readBatch();
+        });
+      }
+
+      function inferDropMode(files) {
+        if (!files.length) return "files";
+        const topLevelNames = uniqueValues(
+          files.map((file) => getTopLevelFolderName(file)).filter(Boolean),
+        );
+        return topLevelNames.length ? "folder" : "files";
+      }
+
+      function handleBulkFolderFiles(mode, files) {
+        if (!state[mode].batch) {
+          showBulkStatus(
+            mode,
+            false,
+            "Chọn Team và Batch trước khi kéo folder.",
+          );
+          return;
+        }
+        const grouped = groupFilesByTopFolder(files);
+        const availableSessionIds = new Set(
+          getFilteredRecords(mode).map((record) => record.sessionId),
+        );
+        const messages = [];
+        const claimedFolderNames = new Set();
+
+        Object.keys(grouped).forEach((folderName) => {
+          const folderFiles = grouped[folderName];
+          if (!availableSessionIds.has(folderName)) {
+            messages.push(folderName + ": không có trong SessionID available.");
+            return;
+          }
+          if (
+            claimedFolderNames.has(folderName) ||
+            isDuplicateSessionSelected(mode, folderName, "")
+          ) {
+            messages.push(
+              folderName + ": bị trùng SessionID/folder đang có trên màn hình.",
+            );
+            return;
+          }
+          claimedFolderNames.add(folderName);
+
+          let row = state[mode].rows.find((item) => {
+            const select = document.getElementById(item.selectId);
+            return select && select.value === folderName;
+          });
+          if (!row) {
+            row = addUploadRow(mode, folderName);
+          }
+          if (!row) {
+            messages.push(folderName + ": không thể tạo dòng upload.");
+            return;
+          }
+
+          const staged = stageRowFiles(mode, row.key, folderFiles, "folder", {
+            statusTarget: "none",
+          });
+          if (!staged.ok) {
+            messages.push(folderName + ": " + staged.message);
+            return;
+          }
+          messages.push(
+            folderName + ": đang tạo folder, upload file và cập nhật Sheet.",
+          );
+        });
+
+        if (!messages.length) {
+          showBulkStatus(mode, false, "Không tìm thấy folder hợp lệ nào.");
+          return;
+        }
+
+        showBulkStatus(mode, true, messages.join("\n"));
+      }
+
+      function groupFilesByTopFolder(files) {
+        const result = {};
+        (files || []).forEach((file) => {
+          const folderName = getTopLevelFolderName(file);
+          if (!folderName) return;
+          if (!result[folderName]) result[folderName] = [];
+          result[folderName].push(file);
+        });
+        return result;
+      }
+
+      function getTopLevelFolderName(file) {
+        const path =
+          file && file.webkitRelativePath
+            ? String(file.webkitRelativePath)
+            : "";
+        if (!path || path.indexOf("/") === -1) return "";
+        return path.split("/")[0];
+      }
+
+      function stageRowFiles(mode, key, files, sourceType, options) {
+        const row = state[mode].rows.find((item) => item.key === key);
+        if (!row) return { ok: false, message: "Không tìm thấy dòng upload." };
+        const sessionId =
+          (document.getElementById(row.selectId) || {}).value || "";
+        const validation = validateSelectedFiles(files, sessionId, sourceType);
+        if (!validation.ok) {
+          if (!options || options.statusTarget !== "none") {
+            showRowStatus(mode, key, false, validation.message);
+          }
+          return validation;
+        }
+
+        const csvInput = document.getElementById(row.csvField);
+        const mp4Input = document.getElementById(row.mp4Field);
+        const fileMap = splitFilesForUpload(validation.files);
+        if (!csvInput || !mp4Input || !fileMap.csv || !fileMap.mp4) {
+          return {
+            ok: false,
+            message: "Không thể gán file CSV/MP4 vào form upload.",
+          };
+        }
+
+        const csvDt = new DataTransfer();
+        csvDt.items.add(fileMap.csv);
+        csvInput.files = csvDt.files;
+
+        const mp4Dt = new DataTransfer();
+        mp4Dt.items.add(fileMap.mp4);
+        mp4Input.files = mp4Dt.files;
+
+        resetRowUploadState(row);
+        renderFileSelection(
+          row.fileListId,
+          [fileMap.csv, fileMap.mp4],
+          validation.label,
+        );
+        if (!options || options.statusTarget !== "none") {
+          showRowStatus(mode, key, true, validation.message);
+        }
+        uploadRow(mode, key);
+        return validation;
+      }
+
+      function validateSelectedFiles(files, sessionId, sourceType) {
+        if (!sessionId) {
+          return {
+            ok: false,
+            message: "Chọn SessionID trước khi kéo thả hoặc chọn file.",
+          };
+        }
+        if (!files || !files.length) {
+          return { ok: false, message: "Không có file nào được chọn." };
+        }
+
+        const normalizedFiles = files.filter(Boolean);
+        const uploadableFiles = normalizedFiles.filter(
+          (file) => !isIgnorableFile(file),
+        );
+        if (sourceType === "folder") {
+          const topLevelNames = uniqueValues(
+            uploadableFiles
+              .map((file) => getTopLevelFolderName(file))
+              .filter(Boolean),
+          );
+          if (topLevelNames.length !== 1) {
+            return {
+              ok: false,
+              message: "Folder upload phải chỉ có đúng 1 folder gốc.",
+            };
+          }
+          if (topLevelNames[0] !== sessionId) {
+            return {
+              ok: false,
+              message:
+                'Tên folder phải trùng SessionID. Cần "' +
+                sessionId +
+                '", nhưng nhận được "' +
+                topLevelNames[0] +
+                '".',
+            };
+          }
+        } else if (
+          uploadableFiles.some((file) => getTopLevelFolderName(file))
+        ) {
+          return {
+            ok: false,
+            message:
+              "Bạn đang kéo folder. Hãy dùng đúng folder tên bằng SessionID hoặc chọn đúng 2 file.",
+          };
+        }
+
+        if (sourceType === "folder") {
+          const csvFiles = uploadableFiles.filter(
+            (file) => getFileExtension(file.name) === "csv",
+          );
+          const mp4Files = uploadableFiles.filter(
+            (file) => getFileExtension(file.name) === "mp4",
+          );
+
+          if (!csvFiles.length || !mp4Files.length) {
+            return {
+              ok: false,
+              message:
+                "Trong folder phải có ít nhất 1 file CSV và 1 file MP4.",
+            };
+          }
+          if (csvFiles.length > 1) {
+            return {
+              ok: false,
+              message: "Trong folder chỉ được có 1 file CSV hợp lệ để upload.",
+            };
+          }
+          if (mp4Files.length > 1) {
+            return {
+              ok: false,
+              message: "Trong folder chỉ được có 1 file MP4 hợp lệ để upload.",
+            };
+          }
+
+          return {
+            ok: true,
+            files: [csvFiles[0], mp4Files[0]],
+            label: "Folder đã sẵn sàng",
+            message:
+              "Đã quét folder và tìm thấy đúng 1 file CSV cùng 1 file MP4 để upload.",
+          };
+        }
+
+        if (uploadableFiles.length !== 2) {
+          return { ok: false, message: "Cần đúng 2 file: 1 CSV và 1 MP4." };
+        }
+
+        const extensions = uploadableFiles
+          .map((file) => getFileExtension(file.name))
+          .sort();
+        if (extensions.join(",") !== "csv,mp4") {
+          return { ok: false, message: "Chỉ chấp nhận đúng 1 CSV và 1 MP4." };
+        }
+
+        return {
+          ok: true,
+          files: uploadableFiles,
+          label: "File đã sẵn sàng",
+          message: "2 file hợp lệ và đã sẵn sàng upload.",
+        };
+      }
+
+      function renderAddRowHint(mode, key) {
+        const row = state[mode].rows.find((item) => item.key === key);
+        if (!row) return;
+        const details = document.getElementById(row.detailsId);
+        const sessionId = document.getElementById(row.selectId).value;
+        const record = getFilteredRecords(mode).find(
+          (item) => item.sessionId === sessionId,
+        );
+        if (!record) {
+          details.innerHTML = `<div class="text-danger">SessionID không còn phù hợp với filter hiện tại.</div>`;
+          return;
+        }
+        const selectedDate =
+          (document.getElementById(mode + "Date") || {}).value || "-";
+        const selectedGame =
+          (document.getElementById(mode + "Game") || {}).value || "-";
+        details.innerHTML = `
+          <div><strong>${escapeHtml(record.sessionId)}</strong></div>
+          <div>Folder upload: ${escapeHtml([
+            record.team || state[mode].team,
+            selectedDate,
+            selectedGame,
+            record.sessionId,
+          ].filter(Boolean).join(" > "))}</div>
+          <div>Chưa có link trên Sheet.</div>
+        `;
+      }
+
+      function loadRowSessionDetails(mode, key) {
+        const row = state[mode].rows.find((item) => item.key === key);
+        if (!row) return;
+        const details = document.getElementById(row.detailsId);
+        const sessionId = document.getElementById(row.selectId).value;
+        if (!sessionId) {
+          details.innerHTML = `<div class="text-danger">Chưa chọn SessionID.</div>`;
+          return;
+        }
+
+        details.innerHTML = `<div class="text-muted">Đang tải file hiện tại...</div>`;
+        apiGet("/api/session-details", {
+          batch: state[mode].batch,
+          team: state[mode].team,
+          sessionId,
+          mode,
+        })
+          .then((res) => {
+            if (!res || !res.ok) {
+              details.innerHTML = `<div class="text-danger">${escapeHtml(res && res.message ? res.message : "Không thể tải chi tiết SessionID.")}</div>`;
+              return;
+            }
+
+            const filesHtml = (res.files || []).length
+              ? `<div class="folder-files">${res.files.map((file) => renderFileRow(file, mode, sessionId)).join("")}</div>`
+              : `<div class="tiny-note mt-2">Folder hiện chưa có file.</div>`;
+
+            details.innerHTML = `
+              <div><strong>${escapeHtml(res.sessionId)}</strong></div>
+              <div>Folder upload: ${escapeHtml([
+                res.team || state[mode].team,
+                (document.getElementById(mode + "Date") || {}).value || "",
+                (document.getElementById(mode + "Game") || {}).value || "",
+                res.sessionId,
+              ].filter(Boolean).join(" > "))}</div>
+              <div>Folder hiện tại: ${res.folderUrl ? `<a href="${escapeHtml(res.folderUrl)}" target="_blank">Mở thư mục</a>` : "Chưa có link"}</div>
+              <div class="tiny-note mt-2">${escapeHtml(res.message || "")}</div>
+              ${filesHtml}
+            `;
+          })
+          .catch((err) => {
+            details.innerHTML = `<div class="text-danger">Lỗi khi tải chi tiết SessionID: ${escapeHtml(normalizeError(err))}</div>`;
+          });
+      }
+
+      function renderFileRow(file, mode, sessionId) {
+        const deleteButton =
+          `
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-danger"
+                onclick="deleteFile('${escapeHtml(file.id)}','${mode}','${escapeHtml(sessionId)}')"
+              >
+                Xóa
+              </button>
+            `
+          ;
+        return `
+          <div class="folder-file-row">
+            <div>
+              <div><a href="${escapeHtml(file.url)}" target="_blank">${escapeHtml(file.name)}</a></div>
+              <div class="folder-file-meta">
+                Loại: ${escapeHtml((file.type || "không rõ").toUpperCase())}
+                | Người upload: ${escapeHtml(file.uploadedBy || "Không rõ")}
+                | Thời gian upload: ${escapeHtml(file.uploadedAt || "Không rõ")}
+              </div>
+            </div>
+            <div>${deleteButton}</div>
+          </div>
+        `;
+      }
+
+      function deleteFile(fileId, mode, sessionId) {
+        if (
+          !confirm("Bạn có chắc muốn xóa file này không?")
+        )
+          return;
+
+        const targetRow = state[mode].rows.find((row) => {
+          const select = document.getElementById(row.selectId);
+          return select && select.value === sessionId;
+        });
+        showRowStatus(
+          mode,
+          targetRow ? targetRow.key : "",
+          true,
+          "Đang xóa file...",
+        );
+        apiPostJson("/api/delete-file", {
+          fileId,
+          batch: state[mode].batch,
+          team: state[mode].team,
+          sessionId,
+        })
+          .then((res) => {
+            showRowStatus(
+              mode,
+              targetRow ? targetRow.key : "",
+              !!(res && res.ok),
+              res && res.message ? res.message : "Đã xử lý yêu cầu xóa file.",
+            );
+            if (res && res.ok) {
+              state[mode].rows.forEach((row) => {
+                const select = document.getElementById(row.selectId);
+                if (select && select.value === sessionId && mode === "edit") {
+                  loadRowSessionDetails(mode, row.key);
+                }
+              });
+            }
+          })
+          .catch((err) => {
+            showRowStatus(
+              mode,
+              targetRow ? targetRow.key : "",
+              false,
+              "Lỗi khi xóa file: " + normalizeError(err),
+            );
+          });
+      }
+
+      function uploadRow(mode, key) {
+        const row = state[mode].rows.find((item) => item.key === key);
+        if (!row) return;
+        if (!state[mode].team || !state[mode].batch) {
+          showRowStatus(
+            mode,
+            key,
+            false,
+            "Chọn Team và Batch trước khi upload.",
+          );
+          return;
+        }
+
+        const sessionId = document.getElementById(row.selectId).value;
+        const csvInput = document.getElementById(row.csvField);
+        const mp4Input = document.getElementById(row.mp4Field);
+        if (!sessionId) {
+          showRowStatus(mode, key, false, "Chưa chọn SessionID.");
+          return;
+        }
+        if (isDuplicateSessionSelected(mode, sessionId, key)) {
+          showRowStatus(
+            mode,
+            key,
+            false,
+            `SessionID ${sessionId} đã được chọn ở row khác.`,
+          );
+          return;
+        }
+        if (
+          !csvInput ||
+          !mp4Input ||
+          csvInput.files.length !== 1 ||
+          mp4Input.files.length !== 1
+        ) {
+          showRowStatus(
+            mode,
+            key,
+            false,
+            `SessionID ${sessionId} phải có đủ 1 file CSV và 1 file MP4.`,
+          );
+          return;
+        }
+
+        const manifest = [
+          {
+            sessionId,
+            csvField: row.csvField,
+            mp4Field: row.mp4Field,
+          },
+        ];
+        document.getElementById(mode + "SelectedTeam").value = state[mode].team;
+        document.getElementById(mode + "SelectedBatch").value =
+          state[mode].batch;
+        const dateField = document.getElementById(mode + "Date");
+        const gameField = document.getElementById(mode + "Game");
+        document.getElementById(mode + "SelectedDate").value = dateField
+          ? dateField.value
+          : "";
+        document.getElementById(mode + "SelectedGame").value = gameField
+          ? gameField.value
+          : "";
+        document.getElementById(mode + "UploadManifest").value =
+          JSON.stringify(manifest);
+
+        const runUpload = () => {
+          startRowProgress(row);
+          showRowStatus(
+            mode,
+            key,
+            true,
+            "Đang tạo folder, upload file và cập nhật Sheet...",
+          );
+
+          apiUploadRow(mode, row)
+            .then((res) => {
+              completeRowProgress(row);
+              showRowStatus(
+                mode,
+                key,
+                !!(res && res.ok),
+                res && res.message ? res.message : "Đã xử lý xong yêu cầu.",
+              );
+              if (res && res.ok && res.result) {
+                row.uploadMeta = res.result;
+                loadRowSessionDetails(mode, key);
+              }
+            })
+            .catch((err) => {
+              failRowProgress(row);
+              showRowStatus(
+                mode,
+                key,
+                false,
+                "Lỗi hệ thống: " + normalizeError(err),
+              );
+            });
+        };
+
+        if (!row.uploadMeta) {
+          runUpload();
+          return;
+        }
+
+        showRowStatus(
+          mode,
+          key,
+          true,
+          "Đang xóa thư mục upload trước đó để thay thế...",
+        );
+        apiPostJson("/api/delete-uploaded-session", {
+          mode: mode,
+          batch: state[mode].batch,
+          team: state[mode].team,
+          sessionId: row.uploadMeta.sessionId,
+          rowNumber: row.uploadMeta.rowNumber,
+          oldDriverLink: row.uploadMeta.oldDriverLink || "",
+          newDriverLink: row.uploadMeta.newDriverLink,
+          restoreMode: "old",
+        })
+          .then((res) => {
+            if (!res || !res.ok) {
+              showRowStatus(
+                mode,
+                key,
+                false,
+                res && res.message
+                  ? res.message
+                  : "Không thể thay thế lần upload trước.",
+              );
+              return;
+            }
+            row.uploadMeta = null;
+            runUpload();
+          })
+          .catch((err) => {
+            showRowStatus(
+              mode,
+              key,
+              false,
+              "Lỗi khi thay thế dữ liệu upload: " + normalizeError(err),
+            );
+          });
+      }
+
+      function updateMetaStatus(mode, message, isError) {
+        const box = document.getElementById(mode + "MetaStatus");
+        if (message) {
+          box.className =
+            "alert " +
+            (isError ? "alert-danger" : "alert-info") +
+            " status-box mb-0";
+          box.innerText = message;
+          return;
+        }
+
+        const total = state[mode].recordsLoaded
+          ? String(state[mode].records.length)
+          : state[mode].batch
+            ? "Đang tải..."
+            : "-";
+        const lines = [
+          "Team: " + formatTeamMeta(state[mode].team || "-"),
+          "Batch: " + (state[mode].batch || "-"),
+          "Ngày: " +
+            ((document.getElementById(mode + "Date") || {}).value || "-"),
+          "Game: " +
+            ((document.getElementById(mode + "Game") || {}).value || "-"),
+          "Số kịch bản chưa làm: " + total,
+        ];
+        box.className = "alert alert-info status-box mb-0";
+        box.innerText = lines.join("\n");
+      }
+
+      function showModeStatus(mode, ok, message) {
+        const rows = state[mode].rows || [];
+        if (rows.length) {
+          showRowStatus(mode, rows[0].key, ok, message);
+          return;
+        }
+        const box = document.getElementById(mode + "MetaStatus");
+        box.className =
+          "alert " +
+          (ok ? "alert-success" : "alert-danger") +
+          " status-box mb-0";
         box.innerText = message;
         box.classList.remove("d-none");
       }
+
+      function showRowStatus(mode, key, ok, message) {
+        const row = state[mode].rows.find((item) => item.key === key);
+        if (!row) return;
+        const box = document.getElementById(row.statusId);
+        if (!box) return;
+        box.className =
+          "alert " +
+          (ok ? "alert-success" : "alert-danger") +
+          " status-box mb-3";
+        box.innerText = message;
+        box.classList.remove("d-none");
+      }
+
+      function showBulkStatus(mode, ok, message) {
+        const box = document.getElementById(mode + "BulkStatus");
+        if (!box) return;
+        box.className =
+          "alert " +
+          (ok ? "alert-success" : "alert-danger") +
+          " status-box mt-3 mb-0";
+        box.innerText = message;
+        box.classList.remove("d-none");
+      }
+
+      function renderFileSelection(containerId, files, label) {
+        const box = document.getElementById(containerId);
+        if (!files || !files.length) {
+          box.innerHTML = "";
+          return;
+        }
+        const lines = Array.from(files).map((file) => {
+          const path = file.webkitRelativePath || file.name;
+          return escapeHtml(path);
+        });
+        box.innerHTML =
+          (label
+            ? `<div class="fw-bold mb-1">${escapeHtml(label)}</div>`
+            : "") + lines.map((fileName) => fileName).join("<br>");
+      }
+
+      function loadCachedPath() {}
+
+      function savePathCache() {
+        const box = document.getElementById("adminStatus");
+        if (!box) return;
+        box.className = "alert alert-danger status-box mt-3 mb-0";
+        box.innerText = "Bản Cloud không dùng cache đường dẫn thủ công.";
+        box.classList.remove("d-none");
+      }
+
+      async function apiGet(path, params) {
+        const url = new URL(path, window.location.origin);
+        Object.entries(params || {}).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && value !== "") {
+            url.searchParams.set(key, value);
+          }
+        });
+        const response = await fetch(url.toString(), {
+          credentials: "same-origin",
+        });
+        return parseApiResponse(response);
+      }
+
+      async function apiPostJson(path, payload) {
+        const response = await fetch(path, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "same-origin",
+          body: JSON.stringify(payload || {}),
+        });
+        return parseApiResponse(response);
+      }
+
+      async function apiUploadRow(mode, row) {
+        const formData = new FormData();
+        formData.append("mode", mode);
+        formData.append("team", state[mode].team || "");
+        formData.append("batch", state[mode].batch || "");
+        formData.append(
+          "selectedDate",
+          ((document.getElementById(mode + "Date") || {}).value || ""),
+        );
+        formData.append(
+          "selectedGame",
+          ((document.getElementById(mode + "Game") || {}).value || "GTA"),
+        );
+        formData.append("sessionId", document.getElementById(row.selectId).value || "");
+
+        const csvInput = document.getElementById(row.csvField);
+        const mp4Input = document.getElementById(row.mp4Field);
+        if (csvInput && csvInput.files && csvInput.files[0]) {
+          formData.append("csv", csvInput.files[0]);
+        }
+        if (mp4Input && mp4Input.files && mp4Input.files[0]) {
+          formData.append("mp4", mp4Input.files[0]);
+        }
+
+        const response = await fetch("/api/upload", {
+          method: "POST",
+          credentials: "same-origin",
+          body: formData,
+        });
+        return parseApiResponse(response);
+      }
+
+      async function parseApiResponse(response) {
+        let data = null;
+        try {
+          data = await response.json();
+        } catch (_) {
+          data = null;
+        }
+        if (response.ok) {
+          return data || { ok: true };
+        }
+        const message = data && data.message ? data.message : `HTTP ${response.status}`;
+        throw new Error(message);
+      }
+
+      function formatTodayOption() {
+        const now = new Date();
+        const month = now.toLocaleString("en-US", { month: "long" });
+        return month + " " + now.getDate();
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function normalizeError(err) {
+        return err && err.message ? err.message : String(err);
+      }
+
+      function uniqueValues(values) {
+        return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
+      }
+
+      function getFileExtension(fileName) {
+        const parts = String(fileName || "")
+          .toLowerCase()
+          .split(".");
+        return parts.length > 1 ? parts.pop() : "";
+      }
+
+      function splitFilesForUpload(files) {
+        let csv = null;
+        let mp4 = null;
+        (files || []).forEach((file) => {
+          const ext = getFileExtension(file.name);
+          if (ext === "csv" && !csv) csv = file;
+          if (ext === "mp4" && !mp4) mp4 = file;
+        });
+        return { csv, mp4 };
+      }
+
+      function isIgnorableFile(file) {
+        const name = String((file && file.name) || "");
+        return (
+          !name ||
+          name === ".DS_Store" ||
+          name === "Thumbs.db" ||
+          name.startsWith("._")
+        );
+      }
+
+      function normalizeSessionSearch(value) {
+        return String(value || "")
+          .toUpperCase()
+          .replace(/[^A-Z0-9-]/g, "");
+      }
+
+      function formatTeamMeta(team) {
+        const map = {
+          "Team anh Giang": "A Giang",
+          "Team Tuấn Anh": "Tuấn Anh",
+          "Team CTV": "CTV",
+          "Team Offine": "Offine",
+        };
+        return map[team] || team;
+      }
+
+      function resetRowUploadState(row) {
+        row.uploadMeta = null;
+        stopRowProgress(row);
+      }
+
+      function startRowProgress(row) {
+        stopRowProgress(row);
+        const wrap = document.getElementById(row.progressId);
+        const bar = document.getElementById(row.progressBarId);
+        if (!wrap || !bar) return;
+        wrap.classList.remove("d-none");
+        let value = 0;
+        bar.style.width = "0%";
+        bar.innerText = "0%";
+        row.progressTimer = setInterval(() => {
+          value = Math.min(value + 7, 92);
+          bar.style.width = value + "%";
+          bar.innerText = value + "%";
+        }, 250);
+      }
+
+      function completeRowProgress(row) {
+        stopRowProgress(row);
+        const wrap = document.getElementById(row.progressId);
+        const bar = document.getElementById(row.progressBarId);
+        if (!wrap || !bar) return;
+        wrap.classList.remove("d-none");
+        bar.style.width = "100%";
+        bar.innerText = "100%";
+      }
+
+      function failRowProgress(row) {
+        stopRowProgress(row);
+        const wrap = document.getElementById(row.progressId);
+        const bar = document.getElementById(row.progressBarId);
+        if (!wrap || !bar) return;
+        wrap.classList.remove("d-none");
+        bar.classList.remove("bg-success");
+        bar.classList.add("bg-danger");
+      }
+
+      function stopRowProgress(row) {
+        if (row.progressTimer) {
+          clearInterval(row.progressTimer);
+          row.progressTimer = null;
+        }
+        const bar = document.getElementById(row.progressBarId);
+        if (bar) {
+          bar.classList.remove("bg-danger");
+          bar.classList.add("progress-bar-striped", "progress-bar-animated");
+        }
+      }
+
     </script>
   </body>
 </html>
