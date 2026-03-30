@@ -59,7 +59,7 @@ function buildRecord(row, rowIndex, layout, selectedTeam, includeDriverLink) {
 
   return {
     batchName: "",
-    rowNumber: rowIndex + 1,
+    rowNumber: rowIndex,
     sessionId,
     team: rowTeam || fallbackTeam,
     date: layout.date !== null ? normalizeString(row[layout.date]) : "",

@@ -22,7 +22,6 @@ import {
 import { getUserProfile, REQUIRED_SCOPES } from "./google.js";
 import { getSharedCache, setSharedCache, clearSharedCache } from "./services/cache.js";
 import { classifyUploadedFiles, getDateOptions, normalizeString } from "./utils.js";
-
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,10 +29,8 @@ const BATCH_CACHE_TTL_MS = 30 * 60 * 1000;
 const SESSION_CACHE_TTL_MS = 30 * 1000;
 const batchMapCache = { value: null, expiresAt: 0 };
 const sessionCache = new Map();
-
 app.use(express.json({ limit: "20mb" }));
 app.use(express.static(path.join(__dirname, "..", "public")));
-
 app.get("/api/bootstrap", async (_req, res) => {
   res.json({
     ok: true,
@@ -44,7 +41,6 @@ app.get("/api/bootstrap", async (_req, res) => {
     googleScopes: REQUIRED_SCOPES,
   });
 });
-
 app.get("/api/batches", async (req, res) => {
   try {
     const team = normalizeString(req.query.team);
@@ -57,7 +53,6 @@ app.get("/api/batches", async (req, res) => {
     res.status(500).json({ ok: false, message: `Lỗi khi tải danh sách Batch: ${error.message}` });
   }
 });
-
 app.get("/api/warm-batches", async (_req, res) => {
   try {
     const value = await getBatchMap();
@@ -75,7 +70,6 @@ app.get("/api/warm-batches", async (_req, res) => {
     res.status(500).json({ ok: false, message: `Lỗi khi làm nóng cache Batch: ${error.message}` });
   }
 });
-
 app.get("/api/sessions", async (req, res) => {
   try {
     const team = normalizeString(req.query.team);
@@ -91,7 +85,6 @@ app.get("/api/sessions", async (req, res) => {
     res.status(500).json({ ok: false, message: `Lỗi khi tải dữ liệu Batch: ${error.message}` });
   }
 });
-
 app.get("/api/me", requireGoogleUser, async (req, res) => {
   res.json({
     ok: true,
@@ -100,7 +93,6 @@ app.get("/api/me", requireGoogleUser, async (req, res) => {
     picture: req.googleUser?.picture || "",
   });
 });
-
 app.get("/api/session-details", requireGoogleUser, async (req, res) => {
   try {
     const team = normalizeString(req.query.team);
@@ -134,7 +126,6 @@ app.get("/api/session-details", requireGoogleUser, async (req, res) => {
     res.status(500).json({ ok: false, message: `Lỗi khi tải chi tiết SessionID: ${error.message}` });
   }
 });
-
 app.post("/api/upload-session-start", requireGoogleUser, async (req, res) => {
   try {
     const mode = normalizeString(req.body.mode);
@@ -143,7 +134,6 @@ app.post("/api/upload-session-start", requireGoogleUser, async (req, res) => {
     const selectedDate = normalizeString(req.body.selectedDate);
     const selectedGame = normalizeString(req.body.selectedGame) || "GTA";
     const sessionId = normalizeString(req.body.sessionId);
-
     const record = await findBatchRecord(batch, sessionId, team);
     if (!record) {
       res.status(400).json({ ok: false, message: `SessionID "${sessionId}" không tồn tại trong Batch đã chọn.` });
@@ -157,11 +147,9 @@ app.post("/api/upload-session-start", requireGoogleUser, async (req, res) => {
       res.status(400).json({ ok: false, message: `SessionID "${sessionId}" chưa có link trên Sheet nên không thể chỉnh sửa.` });
       return;
     }
-
     const targetParent = await getGameFolderForPath(team, selectedDate, selectedGame, req.googleAccessToken);
     const oldDriverLink = record.driverLink || "";
     const sessionFolder = await createUniqueSessionFolder(targetParent.id, sessionId, req.googleAccessToken);
-
     res.json({
       ok: true,
       uploadSession: {
@@ -181,7 +169,6 @@ app.post("/api/upload-session-start", requireGoogleUser, async (req, res) => {
     res.status(500).json({ ok: false, message: `Lỗi khi chuẩn bị upload: ${error.message}` });
   }
 });
-
 app.post("/api/upload-session-complete", requireGoogleUser, async (req, res) => {
   try {
     const mode = normalizeString(req.body.mode);
@@ -190,20 +177,21 @@ app.post("/api/upload-session-complete", requireGoogleUser, async (req, res) => 
     const selectedDate = normalizeString(req.body.selectedDate);
     const selectedGame = normalizeString(req.body.selectedGame) || "GTA";
     const sessionId = normalizeString(req.body.sessionId);
-    const rowNumber = Number(req.body.rowNumber || 0);
     const oldDriverLink = normalizeString(req.body.oldDriverLink);
     const newDriverLink = normalizeString(req.body.newDriverLink);
     const uploadedFiles = Array.isArray(req.body.uploadedFiles) ? req.body.uploadedFiles : [];
     const email = normalizeString(req.googleUser?.email);
-
-    if (!batch || !team || !sessionId || !rowNumber || !newDriverLink) {
+    if (!batch || !team || !sessionId || !newDriverLink) {
       res.status(400).json({ ok: false, message: "Thiếu dữ liệu để hoàn tất upload." });
       return;
     }
-
-    await updateDriverLink(batch, rowNumber, newDriverLink);
+    const record = await findBatchRecord(batch, sessionId, team);
+    if (!record || !record.rowNumber) {
+      res.status(400).json({ ok: false, message: `Không tìm thấy đúng dòng Sheet cho SessionID "${sessionId}".` });
+      return;
+    }
+    await updateDriverLink(batch, record.rowNumber, newDriverLink);
     clearSessionCache(batch, team);
-
     await ensureUploadLogSheet();
     for (const file of uploadedFiles) {
       await appendRow(config.uploadLogSheet, [
@@ -224,12 +212,11 @@ app.post("/api/upload-session-complete", requireGoogleUser, async (req, res) => 
         normalizeString(file.fileType),
       ]);
     }
-
     res.json({
       ok: true,
       result: {
         sessionId,
-        rowNumber,
+        rowNumber: record.rowNumber,
         oldDriverLink,
         newDriverLink,
       },
@@ -243,7 +230,6 @@ app.post("/api/upload-session-complete", requireGoogleUser, async (req, res) => 
     res.status(500).json({ ok: false, message: `Lỗi khi hoàn tất upload: ${error.message}` });
   }
 });
-
 app.post("/api/upload-session-abort", requireGoogleUser, async (req, res) => {
   try {
     const folderLink = normalizeString(req.body.newDriverLink);
@@ -258,7 +244,6 @@ app.post("/api/upload-session-abort", requireGoogleUser, async (req, res) => {
     res.status(500).json({ ok: false, message: `Lỗi khi dọn upload lỗi: ${error.message}` });
   }
 });
-
 app.post("/api/delete-file", requireGoogleUser, async (req, res) => {
   try {
     const { fileId } = req.body;
@@ -268,7 +253,6 @@ app.post("/api/delete-file", requireGoogleUser, async (req, res) => {
     res.status(500).json({ ok: false, message: `Lỗi khi xóa file: ${error.message}` });
   }
 });
-
 app.post("/api/delete-uploaded-session", requireGoogleUser, async (req, res) => {
   try {
     const batch = normalizeString(req.body.batch);
@@ -277,18 +261,19 @@ app.post("/api/delete-uploaded-session", requireGoogleUser, async (req, res) => 
     const newDriverLink = normalizeString(req.body.newDriverLink);
     const restoreMode = normalizeString(req.body.restoreMode) || "clear";
     const oldDriverLink = normalizeString(req.body.oldDriverLink);
-    const recordRowNumber = Number(req.body.rowNumber || 0);
-
-    if (!batch || !sessionId || !newDriverLink || !recordRowNumber) {
+    if (!batch || !team || !sessionId || !newDriverLink) {
       res.status(400).json({ ok: false, message: "Thiếu dữ liệu để xóa thư mục upload." });
       return;
     }
-
+    const record = await findBatchRecord(batch, sessionId, team);
+    if (!record || !record.rowNumber) {
+      res.status(400).json({ ok: false, message: `Không tìm thấy đúng dòng Sheet cho SessionID "${sessionId}" để xóa.` });
+      return;
+    }
     const folder = await getFolderFromLink(newDriverLink, req.googleAccessToken);
     await trashFolder(folder.id, req.googleAccessToken);
-    await updateDriverLink(batch, recordRowNumber, restoreMode === "old" ? oldDriverLink : "");
+    await updateDriverLink(batch, record.rowNumber, restoreMode === "old" ? oldDriverLink : "");
     clearSessionCache(batch, team);
-
     res.json({
       ok: true,
       message: `Thư mục vừa upload của SessionID "${sessionId}" đã được xóa. Sheet đã được cập nhật.`,
@@ -297,14 +282,12 @@ app.post("/api/delete-uploaded-session", requireGoogleUser, async (req, res) => 
     res.status(500).json({ ok: false, message: `Lỗi khi xóa thư mục vừa upload: ${error.message}` });
   }
 });
-
 function requireGoogleUser(req, res, next) {
   const accessToken = getAccessTokenFromRequest(req);
   if (!accessToken) {
     res.status(401).json({ ok: false, message: "Vui lòng đăng nhập Google trước." });
     return;
   }
-
   getUserProfile(accessToken)
     .then((profile) => {
       req.googleAccessToken = accessToken;
@@ -315,7 +298,6 @@ function requireGoogleUser(req, res, next) {
       res.status(401).json({ ok: false, message: `Token Google không hợp lệ hoặc đã hết hạn: ${error.message}` });
     });
 }
-
 function ensureUploadLogSheet() {
   return ensureLogSheet(config.uploadLogSheet, [
     "uploaded_at",
@@ -335,38 +317,32 @@ function ensureUploadLogSheet() {
     "file_type",
   ]);
 }
-
 function getAccessTokenFromRequest(req) {
   const authHeader = String(req.headers.authorization || "");
   if (!authHeader.startsWith("Bearer ")) return "";
   return normalizeString(authHeader.slice(7));
 }
-
 async function getCachedBatchMap() {
   if (batchMapCache.value && batchMapCache.expiresAt > Date.now()) {
     return batchMapCache.value;
   }
-
   const shared = await getSharedCache("batch_map_v1");
   if (shared) {
     batchMapCache.value = shared;
     batchMapCache.expiresAt = Date.now() + BATCH_CACHE_TTL_MS;
     return shared;
   }
-
   const value = await getBatchMap();
   batchMapCache.value = value;
   batchMapCache.expiresAt = Date.now() + BATCH_CACHE_TTL_MS;
   await setSharedCache("batch_map_v1", value, BATCH_CACHE_TTL_MS);
   return value;
 }
-
 async function clearBatchMapCache() {
   batchMapCache.value = null;
   batchMapCache.expiresAt = 0;
   await clearSharedCache("batch_map_v1");
 }
-
 async function getCachedSessionRecords(batch, team) {
   const key = `${team}||${batch}`;
   const hit = sessionCache.get(key);
@@ -377,11 +353,9 @@ async function getCachedSessionRecords(batch, team) {
   sessionCache.set(key, { value, expiresAt: Date.now() + SESSION_CACHE_TTL_MS });
   return value;
 }
-
 function clearSessionCache(batch, team) {
   sessionCache.delete(`${team}||${batch}`);
 }
-
 app.listen(config.port, () => {
   console.log(`upload-tools-cloud listening on ${config.port}`);
 });

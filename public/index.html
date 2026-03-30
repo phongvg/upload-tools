@@ -311,7 +311,6 @@
         </div>
       </div>
     </div>
-
     <div id="mainApp" class="upload-container d-none">
       <div class="app-toolbar">
         <div class="d-flex align-items-center gap-3">
@@ -329,7 +328,6 @@
           </button>
         </div>
       </div>
-
       <ul class="nav nav-tabs mb-4" id="mainTabs" role="tablist">
         <li class="nav-item" role="presentation">
           <button
@@ -356,7 +354,6 @@
           </button>
         </li>
       </ul>
-
       <div class="tab-content">
         <div class="tab-pane fade show active" id="add-pane" role="tabpanel">
           <form id="addForm">
@@ -366,7 +363,6 @@
             <input type="hidden" name="selectedDate" id="addSelectedDate" />
             <input type="hidden" name="selectedGame" id="addSelectedGame" />
             <input type="hidden" name="uploadManifest" id="addUploadManifest" />
-
             <div class="panel-box">
               <div class="row">
                 <div class="col-md-3 mb-3">
@@ -414,7 +410,6 @@
                 </div>
               </div>
             </div>
-
             <div class="panel-box">
               <div class="mb-3">
                 <div class="fw-bold mb-2">Upload Nhiều Folder</div>
@@ -473,7 +468,6 @@
             </div>
           </form>
         </div>
-
         <div class="tab-pane fade" id="edit-pane" role="tabpanel">
           <form id="editForm">
             <input type="hidden" name="uploadMode" value="edit" />
@@ -486,7 +480,6 @@
               name="uploadManifest"
               id="editUploadManifest"
             />
-
             <div class="panel-box">
               <div class="row">
                 <div class="col-md-3 mb-3">
@@ -534,7 +527,6 @@
                 </div>
               </div>
             </div>
-
             <div class="panel-box">
               <div class="mb-3">
                 <div class="fw-bold mb-2">Upload Nhiều Folder</div>
@@ -594,7 +586,6 @@
           </form>
         </div>
       </div>
-
       <div class="panel-box mt-4 d-none" id="adminBox">
         <div class="fw-bold mb-3">Cache Đường Dẫn Cho Admin / Leader</div>
         <div class="row">
@@ -649,7 +640,6 @@
         <div id="adminStatus" class="alert d-none status-box mt-3 mb-0"></div>
       </div>
     </div>
-
     <script>
       const state = {
         add: createModeState("add"),
@@ -663,14 +653,12 @@
         email: "",
         name: "",
       };
-
       window.onload = function () {
         bindModeEvents("add");
         bindModeEvents("edit");
         bindAuthEvents();
         loadInitialData();
       };
-
       function bindAuthEvents() {
         const loginBtn = document.getElementById("loginBtn");
         const logoutBtn = document.getElementById("logoutBtn");
@@ -685,7 +673,6 @@
           });
         }
       }
-
       function initGoogleAuth() {
         if (
           !authState.clientId ||
@@ -720,7 +707,6 @@
           },
         });
       }
-
       function loginWithGoogle() {
         if (!authState.tokenClient) {
           showAuthMessage(
@@ -733,7 +719,6 @@
           prompt: authState.accessToken ? "" : "consent",
         });
       }
-
       function logoutGoogle() {
         if (
           authState.accessToken &&
@@ -748,7 +733,6 @@
         authState.name = "";
         updateAuthUi();
       }
-
       function updateAuthUi() {
         const status = document.getElementById("authStatus");
         const loginBtn = document.getElementById("loginBtn");
@@ -773,14 +757,12 @@
             : "";
         }
       }
-
       function showAuthMessage(message, isError) {
         const status = document.getElementById("authStatus");
         if (!status) return;
         status.innerText = message;
         status.className = "auth-status" + (isError ? " text-danger" : "");
       }
-
       function createModeState(mode) {
         return {
           mode,
@@ -795,20 +777,17 @@
           debounceTimer: null,
         };
       }
-
       function bindModeEvents(mode) {
         document
           .getElementById(mode + "Team")
           .addEventListener("change", () => {
             onTeamChange(mode);
           });
-
         document
           .getElementById(mode + "Batch")
           .addEventListener("change", () => {
             onBatchChange(mode);
           });
-
         const dateSelect = document.getElementById(mode + "Date");
         const gameSelect = document.getElementById(mode + "Game");
         bindBulkDropZone(mode);
@@ -826,7 +805,6 @@
             updateMetaStatus(mode);
           });
         }
-
         const bulkPicker = document.getElementById(mode + "BulkFolderPicker");
         if (bulkPicker) {
           bulkPicker.addEventListener("change", (event) => {
@@ -834,7 +812,6 @@
             event.target.value = "";
           });
         }
-
         document
           .getElementById(mode + "BatchSearch")
           .addEventListener("input", (event) => {
@@ -845,7 +822,6 @@
             }, 250);
           });
       }
-
       async function loadInitialData() {
         try {
           const res = await apiGet("/api/bootstrap", {}, { public: true });
@@ -895,7 +871,6 @@
           showModeStatus("edit", false, message);
         }
       }
-
       function populateTeams(teams) {
         ["add", "edit", "cache"].forEach((prefix) => {
           const select = document.getElementById(prefix + "Team");
@@ -906,7 +881,6 @@
           teams.forEach((team) => select.add(new Option(team, team)));
         });
       }
-
       function onTeamChange(mode) {
         const modeState = state[mode];
         modeState.team = document.getElementById(mode + "Team").value;
@@ -932,7 +906,6 @@
           updateMetaStatus(mode, "Chọn Team để tải danh sách Batch.");
           return;
         }
-
         updateMetaStatus(mode, "Đang tải Batch theo Team...");
         const requestStartedAt = Date.now();
         apiGet("/api/batches", { team: modeState.team })
@@ -963,7 +936,6 @@
             );
           });
       }
-
       function renderBatchOptions(mode) {
         const modeState = state[mode];
         const select = document.getElementById(mode + "Batch");
@@ -971,19 +943,16 @@
         const filtered = modeState.batchOptions.filter((batch) =>
           batch.toLowerCase().includes(query),
         );
-
         const previous = modeState.batch;
         select.innerHTML = "";
         select.add(new Option("Chọn Batch...", ""));
         filtered.forEach((batch) => select.add(new Option(batch, batch)));
-
         if (filtered.includes(previous)) {
           select.value = previous;
         } else {
           modeState.batch = "";
           select.value = "";
         }
-
         if (modeState.batch) {
           updateMetaStatus(mode);
         } else {
@@ -1008,7 +977,6 @@
           }
         }
       }
-
       function onBatchChange(mode) {
         const modeState = state[mode];
         const batch = document.getElementById(mode + "Batch").value;
@@ -1017,14 +985,12 @@
         document.getElementById(mode + "SelectedBatch").value = batch;
         modeState.records = [];
         clearRows(mode);
-
         if (!batch) {
           resetFilters(mode);
           refreshSessionOptions(mode);
           updateMetaStatus(mode, "Chưa chọn Batch.", true);
           return;
         }
-
         updateMetaStatus(mode, "Đang tải dữ liệu...");
         showModeStatus(mode, true, "Đang tải dữ liệu...");
         const requestStartedAt = Date.now();
@@ -1064,7 +1030,6 @@
             );
           });
       }
-
       function resetFilters(mode) {
         const dateField = document.getElementById(mode + "Date");
         const gameField = document.getElementById(mode + "Game");
@@ -1081,7 +1046,6 @@
           selectedGameField.value = gameField ? gameField.value : "GTA";
         }
       }
-
       function populateFilterSelect(id, values, includeAll) {
         const select = document.getElementById(id);
         if (!select) return;
@@ -1094,11 +1058,9 @@
           select.value = select.options[0].value;
         }
       }
-
       function getFilteredRecords(mode) {
         return state[mode].records.slice();
       }
-
       function getAvailableSessions(mode, currentKey) {
         const selectedElsewhere = new Set(
           state[mode].rows
@@ -1109,12 +1071,10 @@
             })
             .filter(Boolean),
         );
-
         return getFilteredRecords(mode)
           .map((record) => record.sessionId)
           .filter((sessionId) => !selectedElsewhere.has(sessionId));
       }
-
       function isDuplicateSessionSelected(mode, sessionId, currentKey) {
         return state[mode].rows.some((row) => {
           if (row.key === currentKey) return false;
@@ -1122,7 +1082,6 @@
           return select && select.value === sessionId;
         });
       }
-
       function addUploadRow(mode, preferredSessionId) {
         if (!state[mode].batch) {
           showModeStatus(
@@ -1132,7 +1091,6 @@
           );
           return;
         }
-
         const available = getAvailableSessions(mode, null);
         if (!available.length) {
           showModeStatus(
@@ -1142,7 +1100,6 @@
           );
           return;
         }
-
         const modeState = state[mode];
         modeState.rowCounter += 1;
         const key = mode + "_" + modeState.rowCounter;
@@ -1179,7 +1136,6 @@
           summaryText: "Chưa tải lên",
         };
         modeState.rows.push(row);
-
         const container = document.getElementById(mode + "Rows");
         const wrapper = document.createElement("div");
         wrapper.className = "session-card";
@@ -1290,7 +1246,6 @@
           </div>
         `;
         container.appendChild(wrapper);
-
         document
           .getElementById(row.searchId)
           .addEventListener("input", (event) => {
@@ -1302,7 +1257,6 @@
               refreshSessionOptions(mode);
             }, 250);
           });
-
         document.getElementById(row.selectId).addEventListener("change", () => {
           const sessionId = document.getElementById(row.selectId).value;
           if (sessionId && isDuplicateSessionSelected(mode, sessionId, key)) {
@@ -1319,21 +1273,18 @@
           if (mode === "edit") loadRowSessionDetails(mode, key);
           else renderAddRowHint(mode, key);
         });
-
         document
           .getElementById(row.chooseFilesBtnId)
           .addEventListener("click", (event) => {
             event.stopPropagation();
             beginSequentialFilePick(row);
           });
-
         document
           .getElementById(row.chooseFolderBtnId)
           .addEventListener("click", (event) => {
             event.stopPropagation();
             document.getElementById(row.folderPickerId).click();
           });
-
         document
           .getElementById(row.folderPickerId)
           .addEventListener("change", (event) => {
@@ -1345,7 +1296,6 @@
             );
             event.target.value = "";
           });
-
         document
           .getElementById(row.csvField)
           .addEventListener("change", (event) => {
@@ -1359,7 +1309,6 @@
             renderSequentialFileSelection(row);
             document.getElementById(row.mp4Field).click();
           });
-
         document.getElementById(row.mp4Field).addEventListener("change", () => {
           const csvFile = (document.getElementById(row.csvField).files ||
             [])[0];
@@ -1377,7 +1326,6 @@
           }
           stageRowFiles(mode, key, [csvFile, mp4File], "files");
         });
-
         document
           .getElementById(row.filesPickerId)
           .addEventListener("change", (event) => {
@@ -1389,9 +1337,7 @@
             );
             event.target.value = "";
           });
-
         bindDropZone(mode, key);
-
         refreshSessionOptions(mode);
         document.getElementById(row.selectId).value =
           preferredSessionId && available.includes(preferredSessionId)
@@ -1403,26 +1349,21 @@
         toggleEmptyState(mode);
         return row;
       }
-
       function clearRows(mode) {
         state[mode].rows = [];
         document.getElementById(mode + "Rows").innerHTML = "";
         toggleEmptyState(mode);
       }
-
       function removeUploadRow(mode, key) {
         const row = state[mode].rows.find((item) => item.key === key);
         if (!row) return;
-
         if (!confirm("Bạn có chắc muốn xóa session này không?")) {
           return;
         }
-
         if (!row.uploadMeta) {
           deleteRowCard(mode, key);
           return;
         }
-
         showRowStatus(mode, key, true, "Đang xóa thư mục vừa upload...");
         apiPostJson("/api/delete-uploaded-session", {
           mode: mode,
@@ -1454,7 +1395,6 @@
             );
           });
       }
-
       function deleteRowCard(mode, key) {
         const rowIndex = state[mode].rows.findIndex((item) => item.key === key);
         if (rowIndex === -1) return;
@@ -1464,7 +1404,6 @@
         refreshSessionOptions(mode);
         toggleEmptyState(mode);
       }
-
       function toggleRowDetails(mode, key) {
         const row = state[mode].rows.find((item) => item.key === key);
         if (!row) return;
@@ -1474,7 +1413,6 @@
         const hidden = wrap.classList.toggle("d-none");
         icon.innerText = hidden ? "▸" : "▾";
       }
-
       function clearRowFiles(mode, key) {
         const row = state[mode].rows.find((item) => item.key === key);
         if (!row) return;
@@ -1491,7 +1429,6 @@
           "Đã xóa file đã chọn. Bạn có thể kéo thả hoặc chọn lại.",
         );
       }
-
       function beginSequentialFilePick(row) {
         if (!row) return;
         const csvInput = document.getElementById(row.csvField);
@@ -1513,7 +1450,6 @@
         renderSequentialFileSelection(row);
         csvInput.click();
       }
-
       function renderSequentialFileSelection(row) {
         if (!row) return;
         const csvFile = (document.getElementById(row.csvField).files || [])[0];
@@ -1531,13 +1467,11 @@
               : "Đang chờ CSV";
         renderFileSelection(row.fileListId, files, label);
       }
-
       function toggleEmptyState(mode) {
         document
           .getElementById(mode + "Empty")
           .classList.toggle("d-none", state[mode].rows.length > 0);
       }
-
       function refreshSessionOptions(mode) {
         state[mode].rows.forEach((row) => {
           const select = document.getElementById(row.selectId);
@@ -1565,13 +1499,11 @@
           else renderAddRowHint(mode, row.key);
         });
       }
-
       function bindDropZone(mode, key) {
         const row = state[mode].rows.find((item) => item.key === key);
         if (!row) return;
         const zone = document.getElementById(row.dropZoneId);
         if (!zone) return;
-
         zone.addEventListener("click", () => {
           beginSequentialFilePick(row);
         });
@@ -1581,21 +1513,18 @@
             beginSequentialFilePick(row);
           }
         });
-
         ["dragenter", "dragover"].forEach((eventName) => {
           zone.addEventListener(eventName, (event) => {
             event.preventDefault();
             zone.classList.add("is-over");
           });
         });
-
         ["dragleave", "dragend", "drop"].forEach((eventName) => {
           zone.addEventListener(eventName, (event) => {
             event.preventDefault();
             if (eventName !== "drop") zone.classList.remove("is-over");
           });
         });
-
         zone.addEventListener("drop", async (event) => {
           zone.classList.remove("is-over");
           try {
@@ -1612,11 +1541,9 @@
           }
         });
       }
-
       function bindBulkDropZone(mode) {
         const zone = document.getElementById(mode + "BulkDropZone");
         if (!zone) return;
-
         zone.addEventListener("click", () => {
           document.getElementById(mode + "BulkFolderPicker").click();
         });
@@ -1626,21 +1553,18 @@
             document.getElementById(mode + "BulkFolderPicker").click();
           }
         });
-
         ["dragenter", "dragover"].forEach((eventName) => {
           zone.addEventListener(eventName, (event) => {
             event.preventDefault();
             zone.classList.add("is-over");
           });
         });
-
         ["dragleave", "dragend", "drop"].forEach((eventName) => {
           zone.addEventListener(eventName, (event) => {
             event.preventDefault();
             if (eventName !== "drop") zone.classList.remove("is-over");
           });
         });
-
         zone.addEventListener("drop", async (event) => {
           zone.classList.remove("is-over");
           try {
@@ -1655,13 +1579,11 @@
           }
         });
       }
-
       async function extractDroppedFiles(dataTransfer) {
         const items = Array.from((dataTransfer && dataTransfer.items) || []);
         if (!items.length) {
           return Array.from((dataTransfer && dataTransfer.files) || []);
         }
-
         const entries = items
           .map((item) =>
             item.webkitGetAsEntry ? item.webkitGetAsEntry() : null,
@@ -1670,7 +1592,6 @@
         if (!entries.length) {
           return Array.from((dataTransfer && dataTransfer.files) || []);
         }
-
         let files = [];
         for (const entry of entries) {
           const entryFiles = await readEntryFiles(entry, "");
@@ -1678,7 +1599,6 @@
         }
         return files;
       }
-
       async function readEntryFiles(entry, parentPath) {
         if (entry.isFile) {
           return new Promise((resolve, reject) => {
@@ -1693,7 +1613,6 @@
             }, reject);
           });
         }
-
         if (entry.isDirectory) {
           const reader = entry.createReader();
           const children = await readAllDirectoryEntries(reader);
@@ -1707,10 +1626,8 @@
           }
           return result;
         }
-
         return [];
       }
-
       function readAllDirectoryEntries(reader) {
         return new Promise((resolve, reject) => {
           const entries = [];
@@ -1727,7 +1644,6 @@
           readBatch();
         });
       }
-
       function inferDropMode(files) {
         if (!files.length) return "files";
         const topLevelNames = uniqueValues(
@@ -1735,7 +1651,6 @@
         );
         return topLevelNames.length ? "folder" : "files";
       }
-
       function handleBulkFolderFiles(mode, files) {
         if (!state[mode].batch) {
           showBulkStatus(
@@ -1751,7 +1666,6 @@
         );
         const messages = [];
         const claimedFolderNames = new Set();
-
         Object.keys(grouped).forEach((folderName) => {
           const folderFiles = grouped[folderName];
           if (!availableSessionIds.has(folderName)) {
@@ -1768,7 +1682,6 @@
             return;
           }
           claimedFolderNames.add(folderName);
-
           let row = state[mode].rows.find((item) => {
             const select = document.getElementById(item.selectId);
             return select && select.value === folderName;
@@ -1780,7 +1693,6 @@
             messages.push(folderName + ": không thể tạo dòng upload.");
             return;
           }
-
           const staged = stageRowFiles(mode, row.key, folderFiles, "folder", {
             statusTarget: "none",
           });
@@ -1792,15 +1704,12 @@
             folderName + ": đang tạo folder, upload file và cập nhật Sheet.",
           );
         });
-
         if (!messages.length) {
           showBulkStatus(mode, false, "Không tìm thấy folder hợp lệ nào.");
           return;
         }
-
         showBulkStatus(mode, true, messages.join("\n"));
       }
-
       function groupFilesByTopFolder(files) {
         const result = {};
         (files || []).forEach((file) => {
@@ -1811,7 +1720,6 @@
         });
         return result;
       }
-
       function getTopLevelFolderName(file) {
         const path =
           file && file.webkitRelativePath
@@ -1820,7 +1728,6 @@
         if (!path || path.indexOf("/") === -1) return "";
         return path.split("/")[0];
       }
-
       function stageRowFiles(mode, key, files, sourceType, options) {
         const row = state[mode].rows.find((item) => item.key === key);
         if (!row) return { ok: false, message: "Không tìm thấy dòng upload." };
@@ -1833,7 +1740,6 @@
           }
           return validation;
         }
-
         const csvInput = document.getElementById(row.csvField);
         const mp4Input = document.getElementById(row.mp4Field);
         const fileMap = splitFilesForUpload(validation.files);
@@ -1843,15 +1749,12 @@
             message: "Không thể gán file CSV/MP4 vào form upload.",
           };
         }
-
         const csvDt = new DataTransfer();
         csvDt.items.add(fileMap.csv);
         csvInput.files = csvDt.files;
-
         const mp4Dt = new DataTransfer();
         mp4Dt.items.add(fileMap.mp4);
         mp4Input.files = mp4Dt.files;
-
         resetRowUploadState(row);
         renderFileSelection(
           row.fileListId,
@@ -1864,7 +1767,6 @@
         uploadRow(mode, key);
         return validation;
       }
-
       function validateSelectedFiles(files, sessionId, sourceType) {
         if (!sessionId) {
           return {
@@ -1875,7 +1777,6 @@
         if (!files || !files.length) {
           return { ok: false, message: "Không có file nào được chọn." };
         }
-
         const normalizedFiles = files.filter(Boolean);
         const uploadableFiles = normalizedFiles.filter(
           (file) => !isIgnorableFile(file),
@@ -1901,7 +1802,6 @@
               "Bạn đang kéo folder. Với SessionID đã chọn, tên folder có thể bất kỳ; hãy dùng nút Chọn folder hoặc chọn trực tiếp 2 file.",
           };
         }
-
         if (sourceType === "folder") {
           const csvFiles = uploadableFiles.filter(
             (file) => getFileExtension(file.name) === "csv",
@@ -1909,7 +1809,6 @@
           const mp4Files = uploadableFiles.filter(
             (file) => getFileExtension(file.name) === "mp4",
           );
-
           if (!csvFiles.length || !mp4Files.length) {
             return {
               ok: false,
@@ -1928,7 +1827,6 @@
               message: "Trong folder chỉ được có 1 file MP4 hợp lệ để upload.",
             };
           }
-
           return {
             ok: true,
             files: [csvFiles[0], mp4Files[0]],
@@ -1937,18 +1835,15 @@
               "Đã quét folder và tìm thấy đúng 1 file CSV cùng 1 file MP4 để upload.",
           };
         }
-
         if (uploadableFiles.length !== 2) {
           return { ok: false, message: "Cần đúng 2 file: 1 CSV và 1 MP4." };
         }
-
         const extensions = uploadableFiles
           .map((file) => getFileExtension(file.name))
           .sort();
         if (extensions.join(",") !== "csv,mp4") {
           return { ok: false, message: "Chỉ chấp nhận đúng 1 CSV và 1 MP4." };
         }
-
         return {
           ok: true,
           files: uploadableFiles,
@@ -1956,7 +1851,6 @@
           message: "2 file hợp lệ và đã sẵn sàng upload.",
         };
       }
-
       function renderAddRowHint(mode, key) {
         const row = state[mode].rows.find((item) => item.key === key);
         if (!row) return;
@@ -1987,7 +1881,6 @@
           )}</div>
         `;
       }
-
       function loadRowSessionDetails(mode, key) {
         const row = state[mode].rows.find((item) => item.key === key);
         if (!row) return;
@@ -1997,7 +1890,6 @@
           details.innerHTML = `<div class="text-danger">Chưa chọn SessionID.</div>`;
           return;
         }
-
         details.innerHTML = `<div class="text-muted">Đang tải file hiện tại...</div>`;
         apiGet("/api/session-details", {
           batch: state[mode].batch,
@@ -2010,7 +1902,6 @@
               details.innerHTML = `<div class="text-danger">${escapeHtml(res && res.message ? res.message : "Không thể tải chi tiết SessionID.")}</div>`;
               return;
             }
-
             const currentFolderUrl =
               res.folderUrl ||
               (row.uploadMeta && row.uploadMeta.newDriverLink) ||
@@ -2023,7 +1914,6 @@
             const filesHtml = (res.files || []).length
               ? `<div class="folder-files">${res.files.map((file) => renderFileRow(file, mode, sessionId)).join("")}</div>`
               : "";
-
             details.innerHTML = `
               <div><strong>${escapeHtml(res.sessionId)}</strong></div>
               <div>Folder upload: ${escapeHtml(
@@ -2045,7 +1935,6 @@
             details.innerHTML = `<div class="text-danger">Lỗi khi tải chi tiết SessionID: ${escapeHtml(normalizeError(err))}</div>`;
           });
       }
-
       function renderFileRow(file, mode, sessionId) {
         const deleteButton = `
               <button
@@ -2070,10 +1959,8 @@
           </div>
         `;
       }
-
       function deleteFile(fileId, mode, sessionId) {
         if (!confirm("Bạn có chắc muốn xóa file này không?")) return;
-
         const targetRow = state[mode].rows.find((row) => {
           const select = document.getElementById(row.selectId);
           return select && select.value === sessionId;
@@ -2115,7 +2002,6 @@
             );
           });
       }
-
       function uploadRow(mode, key) {
         const row = state[mode].rows.find((item) => item.key === key);
         if (!row) return;
@@ -2128,7 +2014,6 @@
           );
           return;
         }
-
         const sessionId = document.getElementById(row.selectId).value;
         const csvInput = document.getElementById(row.csvField);
         const mp4Input = document.getElementById(row.mp4Field);
@@ -2159,7 +2044,6 @@
           );
           return;
         }
-
         const manifest = [
           {
             sessionId,
@@ -2180,7 +2064,6 @@
           : "";
         document.getElementById(mode + "UploadManifest").value =
           JSON.stringify(manifest);
-
         const runUpload = () => {
           startRowProgress(row);
           showRowStatus(
@@ -2189,7 +2072,6 @@
             true,
             "Đang tạo folder, upload file và cập nhật Sheet...",
           );
-
           apiUploadRow(mode, row)
             .then((res) => {
               completeRowProgress(row);
@@ -2214,12 +2096,10 @@
               );
             });
         };
-
         if (!row.uploadMeta) {
           runUpload();
           return;
         }
-
         showRowStatus(
           mode,
           key,
@@ -2260,7 +2140,6 @@
             );
           });
       }
-
       function updateMetaStatus(mode, message, isError) {
         const box = document.getElementById(mode + "MetaStatus");
         if (message) {
@@ -2271,7 +2150,6 @@
           box.innerText = message;
           return;
         }
-
         const total = state[mode].recordsLoaded
           ? String(state[mode].records.length)
           : state[mode].batch
@@ -2289,7 +2167,6 @@
         box.className = "alert alert-info status-box mb-0";
         box.innerText = lines.join("\n");
       }
-
       function updateRowSummary(mode, key, kind, message) {
         const row = state[mode].rows.find((item) => item.key === key);
         if (!row) return;
@@ -2308,7 +2185,6 @@
         if (icon) icon.innerText = iconMap[kindValue] || "•";
         if (textNode) textNode.innerText = label;
       }
-
       function showModeStatus(mode, ok, message) {
         const rows = state[mode].rows || [];
         if (rows.length) {
@@ -2323,7 +2199,6 @@
         box.innerText = message;
         box.classList.remove("d-none");
       }
-
       function showRowStatus(mode, key, ok, message) {
         const row = state[mode].rows.find((item) => item.key === key);
         if (!row) return;
@@ -2344,7 +2219,6 @@
           : "error";
         updateRowSummary(mode, key, summaryKind, firstLine);
       }
-
       function showBulkStatus(mode, ok, message) {
         const box = document.getElementById(mode + "BulkStatus");
         if (!box) return;
@@ -2355,7 +2229,6 @@
         box.innerText = message;
         box.classList.remove("d-none");
       }
-
       function renderFileSelection(containerId, files, label) {
         const box = document.getElementById(containerId);
         if (!files || !files.length) {
@@ -2371,9 +2244,7 @@
             ? `<div class="fw-bold mb-1">${escapeHtml(label)}</div>`
             : "") + lines.map((fileName) => fileName).join("<br>");
       }
-
       function loadCachedPath() {}
-
       function savePathCache() {
         const box = document.getElementById("adminStatus");
         if (!box) return;
@@ -2381,7 +2252,6 @@
         box.innerText = "Bản Cloud không dùng cache đường dẫn thủ công.";
         box.classList.remove("d-none");
       }
-
       async function apiGet(path, params, options) {
         const url = new URL(path, window.location.origin);
         Object.entries(params || {}).forEach(([key, value]) => {
@@ -2396,7 +2266,6 @@
         });
         return parseApiResponse(response);
       }
-
       async function apiPostJson(path, payload, options) {
         const headers = buildAuthHeaders(options);
         headers["Content-Type"] = "application/json";
@@ -2408,7 +2277,6 @@
         });
         return parseApiResponse(response);
       }
-
       async function apiUploadRow(mode, row) {
         const payload = {
           mode,
@@ -2420,7 +2288,6 @@
             (document.getElementById(mode + "Game") || {}).value || "GTA",
           sessionId: document.getElementById(row.selectId).value || "",
         };
-
         const csvInput = document.getElementById(row.csvField);
         const mp4Input = document.getElementById(row.mp4Field);
         const csvFile = csvInput && csvInput.files ? csvInput.files[0] : null;
@@ -2428,7 +2295,6 @@
         if (!csvFile || !mp4File) {
           throw new Error("Thiếu file CSV hoặc MP4 để upload.");
         }
-
         const started = await apiPostJson("/api/upload-session-start", payload);
         if (!started || !started.ok || !started.uploadSession) {
           throw new Error(
@@ -2437,7 +2303,6 @@
               : "Không thể chuẩn bị upload.",
           );
         }
-
         const uploadSession = started.uploadSession;
         const uploadedFiles = [];
         try {
@@ -2453,7 +2318,6 @@
             "mp4",
           );
           uploadedFiles.push(mp4Result);
-
           return await apiPostJson("/api/upload-session-complete", {
             ...uploadSession,
             uploadedFiles,
@@ -2467,7 +2331,6 @@
           throw error;
         }
       }
-
       function buildAuthHeaders(options) {
         const publicCall = options && options.public;
         if (!publicCall && !authState.accessToken) {
@@ -2479,7 +2342,6 @@
         }
         return headers;
       }
-
       async function uploadFileDirectToDrive(file, uploadSession, fileType) {
         const metadata = {
           name: file.name,
@@ -2489,9 +2351,8 @@
             `uploaded_by: ${authState.email || authState.name || ""}`,
             `file_type: ${fileType}`,
             `uploaded_at: ${new Date().toISOString()}`,
-          ].join("\n"),
+          ]].join("\n"),
         };
-
         const initResponse = await fetch(
           "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink",
           {
@@ -2513,37 +2374,53 @@
             ),
           );
         }
-
         const resumableUrl = initResponse.headers.get("location");
         if (!resumableUrl) {
           throw new Error("Drive không trả về URL resumable upload.");
         }
-
-        const uploadResponse = await fetch(resumableUrl, {
-          method: "PUT",
-          headers: {
-            "Content-Type": file.type || "application/octet-stream",
-          },
-          body: file,
-        });
-        if (!uploadResponse.ok) {
-          throw new Error(
-            await extractDriveError(
-              uploadResponse,
-              `Upload file ${file.name} thất bại.`,
-            ),
-          );
+        const chunkSize = 8 * 1024 * 1024;
+        const totalSize = Number(file.size || 0);
+        let offset = 0;
+        let uploaded = null;
+        while (offset < totalSize) {
+          const end = Math.min(offset + chunkSize, totalSize);
+          const chunk = file.slice(offset, end);
+          const uploadResponse = await fetch(resumableUrl, {
+            method: "PUT",
+            headers: {
+              "Content-Type": file.type || "application/octet-stream",
+              "Content-Length": String(chunk.size),
+              "Content-Range": `bytes ${offset}-${end - 1}/${totalSize}`,
+            },
+            body: chunk,
+          });
+          if (uploadResponse.status === 308) {
+            const rangeHeader = uploadResponse.headers.get("range") || "";
+            const match = /bytes=0-(\d+)/i.exec(rangeHeader);
+            offset = match ? Number(match[1]) + 1 : end;
+            continue;
+          }
+          if (!uploadResponse.ok) {
+            throw new Error(
+              await extractDriveError(
+                uploadResponse,
+                `Upload file ${file.name} thất bại.`,
+              ),
+            );
+          }
+          uploaded = await uploadResponse.json();
+          offset = totalSize;
         }
-
-        const data = await uploadResponse.json();
+        if (!uploaded) {
+          throw new Error(`Không nhận được kết quả upload cho file ${file.name}.`);
+        }
         return {
-          id: data.id || "",
-          name: data.name || file.name,
-          webViewLink: data.webViewLink || "",
+          id: uploaded.id || "",
+          name: uploaded.name || file.name,
+          webViewLink: uploaded.webViewLink || "",
           fileType,
         };
       }
-
       async function extractDriveError(response, fallbackMessage) {
         let payload = null;
         try {
@@ -2556,7 +2433,6 @@
         }
         return `${fallbackMessage} HTTP ${response.status}`;
       }
-
       async function parseApiResponse(response) {
         let data = null;
         try {
@@ -2571,13 +2447,11 @@
           data && data.message ? data.message : `HTTP ${response.status}`;
         throw new Error(message);
       }
-
       function formatTodayOption() {
         const now = new Date();
         const month = now.toLocaleString("en-US", { month: "long" });
         return month + " " + now.getDate();
       }
-
       function escapeHtml(value) {
         return String(value)
           .replace(/&/g, "&amp;")
@@ -2586,22 +2460,18 @@
           .replace(/"/g, "&quot;")
           .replace(/'/g, "&#39;");
       }
-
       function normalizeError(err) {
         return err && err.message ? err.message : String(err);
       }
-
       function uniqueValues(values) {
         return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
       }
-
       function getFileExtension(fileName) {
         const parts = String(fileName || "")
           .toLowerCase()
           .split(".");
         return parts.length > 1 ? parts.pop() : "";
       }
-
       function splitFilesForUpload(files) {
         let csv = null;
         let mp4 = null;
@@ -2612,7 +2482,6 @@
         });
         return { csv, mp4 };
       }
-
       function isIgnorableFile(file) {
         const name = String((file && file.name) || "");
         return (
@@ -2622,13 +2491,11 @@
           name.startsWith("._")
         );
       }
-
       function normalizeSessionSearch(value) {
         return String(value || "")
           .toUpperCase()
           .replace(/[^A-Z0-9-]/g, "");
       }
-
       function formatTeamMeta(team) {
         const map = {
           "Team anh Giang": "A Giang",
@@ -2638,12 +2505,10 @@
         };
         return map[team] || team;
       }
-
       function resetRowUploadState(row) {
         row.uploadMeta = null;
         stopRowProgress(row);
       }
-
       function startRowProgress(row) {
         stopRowProgress(row);
         const wrap = document.getElementById(row.progressId);
@@ -2659,7 +2524,6 @@
           bar.innerText = value + "%";
         }, 250);
       }
-
       function completeRowProgress(row) {
         stopRowProgress(row);
         const wrap = document.getElementById(row.progressId);
@@ -2669,7 +2533,6 @@
         bar.style.width = "100%";
         bar.innerText = "100%";
       }
-
       function failRowProgress(row) {
         stopRowProgress(row);
         const wrap = document.getElementById(row.progressId);
@@ -2679,7 +2542,6 @@
         bar.classList.remove("bg-success");
         bar.classList.add("bg-danger");
       }
-
       function stopRowProgress(row) {
         if (row.progressTimer) {
           clearInterval(row.progressTimer);
