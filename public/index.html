@@ -9,29 +9,45 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
+      :root {
+        --brand-primary: #246bff;
+        --brand-primary-dark: #1f54e5;
+        --brand-primary-soft: #eef1ff;
+        --brand-accent: #6d4cff;
+        --brand-accent-soft: #f3eeff;
+        --surface: #ffffff;
+        --surface-soft: #faf9ff;
+        --line: #dedcf8;
+        --line-strong: #c7c1f4;
+        --text-soft: #635f8f;
+        --shadow: 0 20px 48px rgba(71, 72, 180, 0.14);
+      }
       body {
         padding: 24px;
-        background: linear-gradient(180deg, #eef4ff 0%, #f6f8fc 100%);
+        background:
+          radial-gradient(circle at top left, rgba(36, 107, 255, 0.16), transparent 24%),
+          radial-gradient(circle at top right, rgba(109, 76, 255, 0.12), transparent 22%),
+          linear-gradient(180deg, #f4f6ff 0%, #fbfbff 100%);
       }
       .upload-container {
         max-width: 1120px;
         margin: auto;
-        background: #fff;
+        background: var(--surface);
         padding: 28px;
-        border-radius: 18px;
-        box-shadow: 0 16px 40px rgba(38, 69, 120, 0.12);
+        border-radius: 20px;
+        box-shadow: var(--shadow);
       }
       .panel-box {
-        background: #f8fbff;
-        border: 1px solid #d8e7ff;
-        border-radius: 14px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(250,249,255,0.98) 100%);
+        border: 1px solid var(--line);
+        border-radius: 16px;
         padding: 18px;
         margin-bottom: 20px;
       }
       .session-card {
         background: #fff;
-        border: 1px solid #dce6f5;
-        border-radius: 12px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
         padding: 16px;
         margin-top: 12px;
       }
@@ -53,35 +69,37 @@
       }
       .folder-file-meta {
         font-size: 12px;
-        color: #6c757d;
+        color: var(--text-soft);
       }
       .tiny-note {
         font-size: 12px;
-        color: #6c757d;
+        color: var(--text-soft);
       }
       .batch-select {
         min-height: 180px;
       }
       .empty-state {
-        border: 1px dashed #c5d6f5;
-        border-radius: 12px;
+        border: 1px dashed var(--line-strong);
+        border-radius: 14px;
         padding: 16px;
-        color: #5f6f86;
+        color: var(--text-soft);
         background: #fff;
       }
       .drop-zone {
-        border: 2px dashed #b8caea;
-        border-radius: 12px;
+        border: 2px dashed var(--line-strong);
+        border-radius: 14px;
         padding: 18px;
-        background: #f8fbff;
+        background: var(--surface-soft);
         text-align: center;
         transition:
           border-color 0.2s ease,
-          background 0.2s ease;
+          background 0.2s ease,
+          transform 0.2s ease;
       }
       .drop-zone.is-over {
-        border-color: #0d6efd;
-        background: #eef5ff;
+        border-color: var(--brand-accent);
+        background: linear-gradient(135deg, var(--brand-primary-soft), var(--brand-accent-soft));
+        transform: translateY(-1px);
       }
       .status-box {
         white-space: pre-wrap;
@@ -99,30 +117,113 @@
         border-top: 1px solid #e8eef8;
         padding-top: 14px;
       }
-      .auth-box {
+      .login-gate {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .login-card {
+        width: 100%;
+        max-width: 540px;
+        background: #fff;
+        border-radius: 24px;
+        padding: 36px;
+        box-shadow: var(--shadow);
+        border: 1px solid var(--line);
+        text-align: center;
+      }
+      .auth-status {
+        font-size: 14px;
+        color: var(--text-soft);
+      }
+      .brand-logo {
+        max-width: 220px;
+        width: 100%;
+        height: auto;
+        display: block;
+        margin: 0 auto 18px;
+      }
+      .brand-title {
+        color: var(--brand-primary-dark);
+      }
+      .app-toolbar {
         display: flex;
         justify-content: space-between;
         align-items: center;
         gap: 16px;
+        margin-bottom: 20px;
       }
-      .auth-status {
+      .user-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--line);
+        background: var(--surface-soft);
+        border-radius: 999px;
+        padding: 8px 12px;
+        color: var(--text-soft);
         font-size: 14px;
-        color: #42546f;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-accent) 100%);
+        border: none;
+        box-shadow: 0 12px 24px rgba(82, 79, 219, 0.22);
+      }
+      .btn-primary:hover,
+      .btn-primary:focus {
+        background: linear-gradient(135deg, var(--brand-primary-dark) 0%, #5f43ff 100%);
+      }
+      .btn-outline-primary {
+        border-color: var(--brand-accent);
+        color: var(--brand-accent);
+      }
+      .btn-outline-primary:hover,
+      .btn-outline-primary:focus {
+        background: var(--brand-accent-soft);
+        color: var(--brand-accent);
+        border-color: var(--brand-accent);
+      }
+      .text-primary {
+        color: var(--brand-accent) !important;
+      }
+      .alert-info {
+        background: linear-gradient(135deg, var(--brand-primary-soft), var(--brand-accent-soft));
+        border-color: var(--line-strong);
+        color: #4f49a9;
+      }
+      .nav-tabs .nav-link.active {
+        color: var(--brand-accent);
+        border-color: var(--line) var(--line) #fff;
+      }
+      .nav-tabs .nav-link {
+        color: var(--text-soft);
       }
     </style>
   </head>
   <body>
-    <div class="upload-container">
-      <h3 class="text-center text-primary mb-4">Tbrain-Upload System</h3>
-
-      <div class="panel-box auth-box">
-        <div>
-          <div class="fw-bold">Tài khoản Google</div>
-          <div id="authStatus" class="auth-status">Chưa đăng nhập.</div>
-        </div>
-        <div class="d-flex gap-2">
+    <div id="loginGate" class="login-gate">
+      <div class="login-card">
+        <img src="/logo.svg" alt="Tbrain" class="brand-logo" />
+        <h3 class="brand-title mb-3">Tbrain-Upload System</h3>
+        <div class="text-muted mb-3">Đăng nhập Google để vào công cụ upload.</div>
+        <div id="authStatus" class="auth-status mb-4">Chưa đăng nhập.</div>
+        <div class="d-flex justify-content-center gap-2">
           <button type="button" id="loginBtn" class="btn btn-primary">Đăng nhập Google</button>
-          <button type="button" id="logoutBtn" class="btn btn-outline-secondary d-none">Đăng xuất</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="mainApp" class="upload-container d-none">
+      <div class="app-toolbar">
+        <div class="d-flex align-items-center gap-3">
+          <img src="/logo.svg" alt="Tbrain" style="height: 42px; width: auto;" />
+          <h3 class="text-primary mb-0">Tbrain-Upload System</h3>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <div id="userChip" class="user-chip d-none"></div>
+          <button type="button" id="logoutBtn" class="btn btn-outline-secondary btn-sm d-none">Đăng xuất</button>
         </div>
       </div>
 
@@ -536,6 +637,9 @@
         const status = document.getElementById("authStatus");
         const loginBtn = document.getElementById("loginBtn");
         const logoutBtn = document.getElementById("logoutBtn");
+        const loginGate = document.getElementById("loginGate");
+        const mainApp = document.getElementById("mainApp");
+        const userChip = document.getElementById("userChip");
         const loggedIn = !!authState.accessToken;
         if (status) {
           status.innerText = loggedIn
@@ -544,6 +648,14 @@
         }
         if (loginBtn) loginBtn.classList.toggle("d-none", loggedIn);
         if (logoutBtn) logoutBtn.classList.toggle("d-none", !loggedIn);
+        if (loginGate) loginGate.classList.toggle("d-none", loggedIn);
+        if (mainApp) mainApp.classList.toggle("d-none", !loggedIn);
+        if (userChip) {
+          userChip.classList.toggle("d-none", !loggedIn);
+          userChip.innerText = loggedIn
+            ? (authState.name || authState.email || "Google User")
+            : "";
+        }
       }
 
       function showAuthMessage(message, isError) {
@@ -1671,6 +1783,12 @@
               return;
             }
 
+            const currentFolderUrl = res.folderUrl || (row.uploadMeta && row.uploadMeta.newDriverLink) || "";
+            const currentMessage =
+              res.message ||
+              (row.uploadMeta && row.uploadMeta.newDriverLink
+                ? "Đã tải file lên, đang đồng bộ lại chi tiết."
+                : "");
             const filesHtml = (res.files || []).length
               ? `<div class="folder-files">${res.files.map((file) => renderFileRow(file, mode, sessionId)).join("")}</div>`
               : `<div class="tiny-note mt-2">Folder hiện chưa có file.</div>`;
@@ -1683,8 +1801,8 @@
                 (document.getElementById(mode + "Game") || {}).value || "",
                 res.sessionId,
               ].filter(Boolean).join(" > "))}</div>
-              <div>Folder hiện tại: ${res.folderUrl ? `<a href="${escapeHtml(res.folderUrl)}" target="_blank">Mở thư mục</a>` : "Chưa có link"}</div>
-              <div class="tiny-note mt-2">${escapeHtml(res.message || "")}</div>
+              <div>Folder hiện tại: ${currentFolderUrl ? `<a href="${escapeHtml(currentFolderUrl)}" target="_blank">Mở thư mục</a>` : "Chưa có link"}</div>
+              <div class="tiny-note mt-2">${escapeHtml(currentMessage)}</div>
               ${filesHtml}
             `;
           })
