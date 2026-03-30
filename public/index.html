@@ -60,8 +60,73 @@
         background: #fff;
         border: 1px solid var(--line);
         border-radius: 14px;
-        padding: 16px;
+        padding: 14px 16px;
         margin-top: 12px;
+      }
+      .session-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        justify-content: space-between;
+      }
+      .session-header-main {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex: 1;
+      }
+      .session-toggle-icon {
+        border: 0;
+        background: transparent;
+        color: var(--brand-primary-dark);
+        font-size: 18px;
+        line-height: 1;
+        padding: 4px;
+      }
+      .session-summary-line {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .session-summary-main {
+        font-weight: 700;
+        color: var(--text-main);
+      }
+      .session-summary-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        border-radius: 999px;
+        padding: 4px 10px;
+        background: #eef2f8;
+        color: var(--text-soft);
+      }
+      .session-summary-status.is-idle {
+        background: #eef2f8;
+        color: var(--text-soft);
+      }
+      .session-summary-status.is-loading {
+        background: #eef4ff;
+        color: var(--brand-primary-dark);
+      }
+      .session-summary-status.is-success {
+        background: #edf9f0;
+        color: #18794e;
+      }
+      .session-summary-status.is-error {
+        background: #fff1f1;
+        color: #c03434;
+      }
+      .session-summary-icon {
+        font-size: 13px;
+      }
+      .session-body {
+        margin-top: 14px;
       }
       .session-card + .session-card {
         margin-top: 14px;
@@ -1096,6 +1161,12 @@
           chooseFilesBtnId: "choose_files_btn_" + key,
           chooseFolderBtnId: "choose_folder_btn_" + key,
           toggleBtnId: "toggle_btn_" + key,
+          toggleIconId: "toggle_icon_" + key,
+          bodyWrapId: "body_wrap_" + key,
+          summaryMainId: "summary_main_" + key,
+          summaryStatusId: "summary_status_" + key,
+          summaryIconId: "summary_icon_" + key,
+          summaryTextId: "summary_text_" + key,
           detailsWrapId: "details_wrap_" + key,
           statusId: "status_" + key,
           progressId: "progress_" + key,
@@ -1104,6 +1175,8 @@
           debounceTimer: null,
           uploadMeta: null,
           progressTimer: null,
+          summaryKind: "idle",
+          summaryText: "Chưa tải lên",
         };
         modeState.rows.push(row);
 
@@ -1112,98 +1185,108 @@
         wrapper.className = "session-card";
         wrapper.id = "card_" + key;
         wrapper.innerHTML = `
-          <div class="row align-items-start">
-            <div class="col-md-4 mb-3">
-              <label class="form-label fw-bold">Tìm SessionID</label>
-              <input
-                type="text"
-                id="${row.searchId}"
-                class="form-control mb-2"
-                placeholder="Nhập để lọc SessionID..."
-              />
-              <label class="form-label fw-bold">SessionID</label>
-              <select id="${row.selectId}" class="form-select"></select>
-            </div>
-            <div class="col-md-6 mb-3">
-              <label class="form-label fw-bold">Khu vực upload</label>
-              <div id="${row.dropZoneId}" class="drop-zone" role="button" tabindex="0">
-                <div class="fw-bold text-primary">Thả 1 folder hoặc chọn lần lượt CSV rồi MP4</div>
-                <div class="tiny-note mt-2">
-                  Folder mode: chỉ cần đúng 1 CSV và 1 MP4 bên trong folder.
-                </div>
-                <div class="tiny-note">
-                  File mode: click vào đây để chọn lần lượt 1 CSV rồi 1 MP4.
-                </div>
-              </div>
-              <div class="d-flex gap-2 mt-2">
-                <button type="button" id="${row.chooseFilesBtnId}" class="btn btn-sm btn-outline-primary">Chọn CSV rồi MP4</button>
-                <button type="button" id="${row.chooseFolderBtnId}" class="btn btn-sm btn-outline-secondary">Chọn folder</button>
-              </div>
-              <input
-                type="file"
-                name="${row.csvField}"
-                id="${row.csvField}"
-                class="d-none"
-                accept=".csv"
-              />
-              <input
-                type="file"
-                name="${row.mp4Field}"
-                id="${row.mp4Field}"
-                class="d-none"
-                accept=".mp4"
-              />
-              <input
-                type="file"
-                id="${row.folderPickerId}"
-                class="d-none"
-                webkitdirectory
-                directory
-                multiple
-              />
-              <input
-                type="file"
-                id="${row.filesPickerId}"
-                class="d-none"
-                multiple
-                accept=".csv,.mp4"
-              />
-              <div id="${row.fileListId}" class="tiny-note mt-2"></div>
-            </div>
-            <div class="col-md-2 mb-3">
-              <div class="d-grid gap-2">
-                <button
-                  type="button"
-                  id="${row.toggleBtnId}"
-                  class="btn btn-outline-secondary session-toggle"
-                  onclick="toggleRowDetails('${mode}', '${key}')"
-                >
-                  Ẩn chi tiết
-                </button>
-                <button
-                  type="button"
-                  id="${row.removeBtnId}"
-                  class="btn btn-outline-danger"
-                  onclick="removeUploadRow('${mode}', '${key}')"
-                >
-                  Xóa Session
-                </button>
-              </div>
-            </div>
-          </div>
-          <div id="${row.detailsWrapId}" class="session-details-wrap">
-            <div id="${row.progressId}" class="progress d-none mb-3">
-              <div
-                id="${row.progressBarId}"
-                class="progress-bar progress-bar-striped progress-bar-animated"
-                role="progressbar"
-                style="width: 0%"
+          <div class="session-header">
+            <div class="session-header-main">
+              <button
+                type="button"
+                id="${row.toggleBtnId}"
+                class="session-toggle-icon"
+                onclick="toggleRowDetails('${mode}', '${key}')"
+                aria-label="Ẩn hiện chi tiết"
               >
-                0%
+                <span id="${row.toggleIconId}">▸</span>
+              </button>
+              <div class="session-summary-line">
+                <div id="${row.summaryMainId}" class="session-summary-main">Chưa chọn SessionID</div>
+                <div id="${row.summaryStatusId}" class="session-summary-status is-idle">
+                  <span id="${row.summaryIconId}" class="session-summary-icon">•</span>
+                  <span id="${row.summaryTextId}">Chưa tải lên</span>
+                </div>
               </div>
             </div>
-            <div id="${row.statusId}" class="alert d-none status-box mb-3"></div>
-            <div id="${row.detailsId}" class="tiny-note"></div>
+            <button
+              type="button"
+              id="${row.removeBtnId}"
+              class="btn btn-sm btn-outline-danger"
+              onclick="removeUploadRow('${mode}', '${key}')"
+            >
+              Xóa Session
+            </button>
+          </div>
+          <div id="${row.bodyWrapId}" class="session-body d-none">
+            <div class="row align-items-start">
+              <div class="col-md-4 mb-3">
+                <label class="form-label fw-bold">Tìm SessionID</label>
+                <input
+                  type="text"
+                  id="${row.searchId}"
+                  class="form-control mb-2"
+                  placeholder="Nhập để lọc SessionID..."
+                />
+                <label class="form-label fw-bold">SessionID</label>
+                <select id="${row.selectId}" class="form-select"></select>
+              </div>
+              <div class="col-md-8 mb-3">
+                <label class="form-label fw-bold">Khu vực upload</label>
+                <div id="${row.dropZoneId}" class="drop-zone" role="button" tabindex="0">
+                  <div class="fw-bold text-primary">Thả 1 folder hoặc chọn lần lượt CSV rồi MP4</div>
+                  <div class="tiny-note mt-2">
+                    Folder mode: chỉ cần đúng 1 CSV và 1 MP4 bên trong folder.
+                  </div>
+                  <div class="tiny-note">
+                    File mode: click vào đây để chọn lần lượt 1 CSV rồi 1 MP4.
+                  </div>
+                </div>
+                <div class="d-flex gap-2 mt-2">
+                  <button type="button" id="${row.chooseFilesBtnId}" class="btn btn-sm btn-outline-primary">Chọn CSV rồi MP4</button>
+                  <button type="button" id="${row.chooseFolderBtnId}" class="btn btn-sm btn-outline-secondary">Chọn folder</button>
+                </div>
+                <input
+                  type="file"
+                  name="${row.csvField}"
+                  id="${row.csvField}"
+                  class="d-none"
+                  accept=".csv"
+                />
+                <input
+                  type="file"
+                  name="${row.mp4Field}"
+                  id="${row.mp4Field}"
+                  class="d-none"
+                  accept=".mp4"
+                />
+                <input
+                  type="file"
+                  id="${row.folderPickerId}"
+                  class="d-none"
+                  webkitdirectory
+                  directory
+                  multiple
+                />
+                <input
+                  type="file"
+                  id="${row.filesPickerId}"
+                  class="d-none"
+                  multiple
+                  accept=".csv,.mp4"
+                />
+                <div id="${row.fileListId}" class="tiny-note mt-2"></div>
+              </div>
+            </div>
+            <div id="${row.detailsWrapId}" class="session-details-wrap">
+              <div id="${row.progressId}" class="progress d-none mb-3">
+                <div
+                  id="${row.progressBarId}"
+                  class="progress-bar progress-bar-striped progress-bar-animated"
+                  role="progressbar"
+                  style="width: 0%"
+                >
+                  0%
+                </div>
+              </div>
+              <div id="${row.statusId}" class="alert d-none status-box mb-3"></div>
+              <div id="${row.detailsId}" class="tiny-note"></div>
+            </div>
           </div>
         `;
         container.appendChild(wrapper);
@@ -1314,6 +1397,7 @@
           preferredSessionId && available.includes(preferredSessionId)
             ? preferredSessionId
             : available[0];
+        updateRowSummary(mode, key);
         if (mode === "edit") loadRowSessionDetails(mode, key);
         else renderAddRowHint(mode, key);
         toggleEmptyState(mode);
@@ -1384,11 +1468,11 @@
       function toggleRowDetails(mode, key) {
         const row = state[mode].rows.find((item) => item.key === key);
         if (!row) return;
-        const wrap = document.getElementById(row.detailsWrapId);
-        const button = document.getElementById(row.toggleBtnId);
-        if (!wrap || !button) return;
+        const wrap = document.getElementById(row.bodyWrapId);
+        const icon = document.getElementById(row.toggleIconId);
+        if (!wrap || !icon) return;
         const hidden = wrap.classList.toggle("d-none");
-        button.innerText = hidden ? "Hiện chi tiết" : "Ẩn chi tiết";
+        icon.innerText = hidden ? "▸" : "▾";
       }
 
       function clearRowFiles(mode, key) {
@@ -1476,6 +1560,7 @@
           if (searchInput && !searchInput.dataset.touched) {
             searchInput.value = row.searchQuery || "";
           }
+          updateRowSummary(mode, row.key);
           if (mode === "edit") loadRowSessionDetails(mode, row.key);
           else renderAddRowHint(mode, row.key);
         });
@@ -2205,6 +2290,25 @@
         box.innerText = lines.join("\n");
       }
 
+      function updateRowSummary(mode, key, kind, message) {
+        const row = state[mode].rows.find((item) => item.key === key);
+        if (!row) return;
+        if (kind) row.summaryKind = kind;
+        if (message !== undefined) row.summaryText = message;
+        const sessionId = ((document.getElementById(row.selectId) || {}).value || "").trim();
+        const main = document.getElementById(row.summaryMainId);
+        const status = document.getElementById(row.summaryStatusId);
+        const icon = document.getElementById(row.summaryIconId);
+        const textNode = document.getElementById(row.summaryTextId);
+        if (main) main.innerText = sessionId || "Chưa chọn SessionID";
+        const kindValue = row.summaryKind || "idle";
+        const label = row.summaryText || "Chưa tải lên";
+        const iconMap = { idle: "•", loading: "…", success: "✓", error: "✕" };
+        if (status) status.className = "session-summary-status is-" + kindValue;
+        if (icon) icon.innerText = iconMap[kindValue] || "•";
+        if (textNode) textNode.innerText = label;
+      }
+
       function showModeStatus(mode, ok, message) {
         const rows = state[mode].rows || [];
         if (rows.length) {
@@ -2231,6 +2335,14 @@
           " status-box mb-3";
         box.innerText = message;
         box.classList.remove("d-none");
+        const firstLine = String(message || "").split("\n").find(Boolean) || (ok ? "Thành công" : "Thất bại");
+        const normalizedLine = firstLine.toLowerCase();
+        const summaryKind = ok
+          ? normalizedLine.startsWith("đang")
+            ? "loading"
+            : "success"
+          : "error";
+        updateRowSummary(mode, key, summaryKind, firstLine);
       }
 
       function showBulkStatus(mode, ok, message) {

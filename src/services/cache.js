@@ -5,7 +5,9 @@ let firestore = null;
 function getFirestore() {
   if (process.env.ENABLE_FIRESTORE_CACHE === "false") return null;
   if (!firestore) {
-    firestore = new Firestore();
+    firestore = new Firestore({
+      databaseId: process.env.FIRESTORE_DATABASE_ID || "(default)",
+    });
   }
   return firestore;
 }
