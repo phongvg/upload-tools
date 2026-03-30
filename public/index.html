@@ -25,8 +25,16 @@
       body {
         padding: 24px;
         background:
-          radial-gradient(circle at top left, rgba(36, 107, 255, 0.16), transparent 24%),
-          radial-gradient(circle at top right, rgba(109, 76, 255, 0.12), transparent 22%),
+          radial-gradient(
+            circle at top left,
+            rgba(36, 107, 255, 0.16),
+            transparent 24%
+          ),
+          radial-gradient(
+            circle at top right,
+            rgba(109, 76, 255, 0.12),
+            transparent 22%
+          ),
           linear-gradient(180deg, #f4f6ff 0%, #fbfbff 100%);
       }
       .upload-container {
@@ -38,7 +46,11 @@
         box-shadow: var(--shadow);
       }
       .panel-box {
-        background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(250,249,255,0.98) 100%);
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.98) 0%,
+          rgba(250, 249, 255, 0.98) 100%
+        );
         border: 1px solid var(--line);
         border-radius: 16px;
         padding: 18px;
@@ -98,7 +110,11 @@
       }
       .drop-zone.is-over {
         border-color: var(--brand-accent);
-        background: linear-gradient(135deg, var(--brand-primary-soft), var(--brand-accent-soft));
+        background: linear-gradient(
+          135deg,
+          var(--brand-primary-soft),
+          var(--brand-accent-soft)
+        );
         transform: translateY(-1px);
       }
       .status-box {
@@ -167,13 +183,21 @@
         font-size: 14px;
       }
       .btn-primary {
-        background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-accent) 100%);
+        background: linear-gradient(
+          135deg,
+          var(--brand-primary) 0%,
+          var(--brand-accent) 100%
+        );
         border: none;
         box-shadow: 0 12px 24px rgba(82, 79, 219, 0.22);
       }
       .btn-primary:hover,
       .btn-primary:focus {
-        background: linear-gradient(135deg, var(--brand-primary-dark) 0%, #5f43ff 100%);
+        background: linear-gradient(
+          135deg,
+          var(--brand-primary-dark) 0%,
+          #5f43ff 100%
+        );
       }
       .btn-outline-primary {
         border-color: var(--brand-accent);
@@ -189,7 +213,11 @@
         color: var(--brand-accent) !important;
       }
       .alert-info {
-        background: linear-gradient(135deg, var(--brand-primary-soft), var(--brand-accent-soft));
+        background: linear-gradient(
+          135deg,
+          var(--brand-primary-soft),
+          var(--brand-accent-soft)
+        );
         border-color: var(--line-strong);
         color: #4f49a9;
       }
@@ -206,11 +234,15 @@
     <div id="loginGate" class="login-gate">
       <div class="login-card">
         <img src="/logo.svg" alt="Tbrain" class="brand-logo" />
-        <h3 class="brand-title mb-3">Tbrain-Upload System</h3>
-        <div class="text-muted mb-3">Đăng nhập Google để vào công cụ upload.</div>
+        <h3 class="brand-title mb-3">Upload System</h3>
+        <div class="text-muted mb-3">
+          Đăng nhập Google để vào công cụ upload.
+        </div>
         <div id="authStatus" class="auth-status mb-4">Chưa đăng nhập.</div>
         <div class="d-flex justify-content-center gap-2">
-          <button type="button" id="loginBtn" class="btn btn-primary">Đăng nhập Google</button>
+          <button type="button" id="loginBtn" class="btn btn-primary">
+            Đăng nhập Google
+          </button>
         </div>
       </div>
     </div>
@@ -218,12 +250,18 @@
     <div id="mainApp" class="upload-container d-none">
       <div class="app-toolbar">
         <div class="d-flex align-items-center gap-3">
-          <img src="/logo.svg" alt="Tbrain" style="height: 42px; width: auto;" />
-          <h3 class="text-primary mb-0">Tbrain-Upload System</h3>
+          <img src="/logo.svg" alt="Tbrain" style="height: 42px; width: auto" />
+          <h3 class="text-primary mb-0">Upload System</h3>
         </div>
         <div class="d-flex align-items-center gap-2">
           <div id="userChip" class="user-chip d-none"></div>
-          <button type="button" id="logoutBtn" class="btn btn-outline-secondary btn-sm d-none">Đăng xuất</button>
+          <button
+            type="button"
+            id="logoutBtn"
+            class="btn btn-outline-secondary btn-sm d-none"
+          >
+            Đăng xuất
+          </button>
         </div>
       </div>
 
@@ -584,7 +622,12 @@
       }
 
       function initGoogleAuth() {
-        if (!authState.clientId || !window.google || !google.accounts || !google.accounts.oauth2) {
+        if (
+          !authState.clientId ||
+          !window.google ||
+          !google.accounts ||
+          !google.accounts.oauth2
+        ) {
           return;
         }
         authState.tokenClient = google.accounts.oauth2.initTokenClient({
@@ -615,7 +658,10 @@
 
       function loginWithGoogle() {
         if (!authState.tokenClient) {
-          showAuthMessage("Thiếu GOOGLE_CLIENT_ID hoặc Google Identity chưa sẵn sàng.", true);
+          showAuthMessage(
+            "Thiếu GOOGLE_CLIENT_ID hoặc Google Identity chưa sẵn sàng.",
+            true,
+          );
           return;
         }
         authState.tokenClient.requestAccessToken({
@@ -624,7 +670,12 @@
       }
 
       function logoutGoogle() {
-        if (authState.accessToken && window.google && google.accounts && google.accounts.oauth2) {
+        if (
+          authState.accessToken &&
+          window.google &&
+          google.accounts &&
+          google.accounts.oauth2
+        ) {
           google.accounts.oauth2.revoke(authState.accessToken, () => {});
         }
         authState.accessToken = "";
@@ -653,7 +704,7 @@
         if (userChip) {
           userChip.classList.toggle("d-none", !loggedIn);
           userChip.innerText = loggedIn
-            ? (authState.name || authState.email || "Google User")
+            ? authState.name || authState.email || "Google User"
             : "";
         }
       }
@@ -734,7 +785,11 @@
         try {
           const res = await apiGet("/api/bootstrap", {}, { public: true });
           if (!res || !res.ok) {
-            throw new Error(res && res.message ? res.message : "Không thể tải dữ liệu khởi tạo.");
+            throw new Error(
+              res && res.message
+                ? res.message
+                : "Không thể tải dữ liệu khởi tạo.",
+            );
           }
           const opts = res.dateOptions || [];
           populateFilterSelect("addDate", opts, false);
@@ -769,7 +824,8 @@
           const adminBox = document.getElementById("adminBox");
           if (adminBox) adminBox.classList.add("d-none");
         } catch (err) {
-          const message = "Lỗi khi tải danh sách tùy chọn: " + normalizeError(err);
+          const message =
+            "Lỗi khi tải danh sách tùy chọn: " + normalizeError(err);
           showModeStatus("add", false, message);
           showModeStatus("edit", false, message);
         }
@@ -780,8 +836,7 @@
           const select = document.getElementById(prefix + "Team");
           if (!select) return;
           select.innerHTML = "";
-          const placeholder =
-            prefix === "cache" ? "Chọn Team..." : "-";
+          const placeholder = prefix === "cache" ? "Chọn Team..." : "-";
           select.add(new Option(placeholder, ""));
           teams.forEach((team) => select.add(new Option(team, team)));
         });
@@ -822,7 +877,9 @@
               renderBatchOptions(mode);
               updateMetaStatus(
                 mode,
-                res && res.message ? res.message : "Không thể tải danh sách Batch.",
+                res && res.message
+                  ? res.message
+                  : "Không thể tải danh sách Batch.",
                 true,
               );
               return;
@@ -919,7 +976,9 @@
               refreshSessionOptions(mode);
               updateMetaStatus(
                 mode,
-                res && res.message ? res.message : "Không thể tải dữ liệu Batch.",
+                res && res.message
+                  ? res.message
+                  : "Không thể tải dữ liệu Batch.",
                 true,
               );
               return;
@@ -1178,15 +1237,19 @@
           else renderAddRowHint(mode, key);
         });
 
-        document.getElementById(row.chooseFilesBtnId).addEventListener("click", (event) => {
-          event.stopPropagation();
-          beginSequentialFilePick(row);
-        });
+        document
+          .getElementById(row.chooseFilesBtnId)
+          .addEventListener("click", (event) => {
+            event.stopPropagation();
+            beginSequentialFilePick(row);
+          });
 
-        document.getElementById(row.chooseFolderBtnId).addEventListener("click", (event) => {
-          event.stopPropagation();
-          document.getElementById(row.folderPickerId).click();
-        });
+        document
+          .getElementById(row.chooseFolderBtnId)
+          .addEventListener("click", (event) => {
+            event.stopPropagation();
+            document.getElementById(row.folderPickerId).click();
+          });
 
         document
           .getElementById(row.folderPickerId)
@@ -1200,21 +1263,25 @@
             event.target.value = "";
           });
 
-        document.getElementById(row.csvField).addEventListener("change", (event) => {
-          const file = (event.target.files || [])[0];
-          if (!file) return;
-          if (getFileExtension(file.name) !== "csv") {
-            showRowStatus(mode, key, false, "File đầu tiên phải là CSV.");
-            event.target.value = "";
-            return;
-          }
-          renderSequentialFileSelection(row);
-          document.getElementById(row.mp4Field).click();
-        });
+        document
+          .getElementById(row.csvField)
+          .addEventListener("change", (event) => {
+            const file = (event.target.files || [])[0];
+            if (!file) return;
+            if (getFileExtension(file.name) !== "csv") {
+              showRowStatus(mode, key, false, "File đầu tiên phải là CSV.");
+              event.target.value = "";
+              return;
+            }
+            renderSequentialFileSelection(row);
+            document.getElementById(row.mp4Field).click();
+          });
 
         document.getElementById(row.mp4Field).addEventListener("change", () => {
-          const csvFile = (document.getElementById(row.csvField).files || [])[0];
-          const mp4File = (document.getElementById(row.mp4Field).files || [])[0];
+          const csvFile = (document.getElementById(row.csvField).files ||
+            [])[0];
+          const mp4File = (document.getElementById(row.mp4Field).files ||
+            [])[0];
           if (!csvFile || !mp4File) {
             renderSequentialFileSelection(row);
             return;
@@ -1361,11 +1428,12 @@
           renderFileSelection(row.fileListId, []);
           return;
         }
-        const label = csvFile && mp4File
-          ? "File đã sẵn sàng"
-          : csvFile
-            ? "Đã chọn CSV, chờ MP4"
-            : "Đang chờ CSV";
+        const label =
+          csvFile && mp4File
+            ? "File đã sẵn sàng"
+            : csvFile
+              ? "Đã chọn CSV, chờ MP4"
+              : "Đang chờ CSV";
         renderFileSelection(row.fileListId, files, label);
       }
 
@@ -1749,8 +1817,7 @@
           if (!csvFiles.length || !mp4Files.length) {
             return {
               ok: false,
-              message:
-                "Trong folder phải có ít nhất 1 file CSV và 1 file MP4.",
+              message: "Trong folder phải có ít nhất 1 file CSV và 1 file MP4.",
             };
           }
           if (csvFiles.length > 1) {
@@ -1812,12 +1879,16 @@
           (document.getElementById(mode + "Game") || {}).value || "-";
         details.innerHTML = `
           <div><strong>${escapeHtml(record.sessionId)}</strong></div>
-          <div>Folder upload: ${escapeHtml([
-            record.team || state[mode].team,
-            selectedDate,
-            selectedGame,
-            record.sessionId,
-          ].filter(Boolean).join(" > "))}</div>
+          <div>Folder upload: ${escapeHtml(
+            [
+              record.team || state[mode].team,
+              selectedDate,
+              selectedGame,
+              record.sessionId,
+            ]
+              .filter(Boolean)
+              .join(" > "),
+          )}</div>
         `;
       }
 
@@ -1844,7 +1915,10 @@
               return;
             }
 
-            const currentFolderUrl = res.folderUrl || (row.uploadMeta && row.uploadMeta.newDriverLink) || "";
+            const currentFolderUrl =
+              res.folderUrl ||
+              (row.uploadMeta && row.uploadMeta.newDriverLink) ||
+              "";
             const currentMessage =
               res.message ||
               (row.uploadMeta && row.uploadMeta.newDriverLink
@@ -1856,12 +1930,16 @@
 
             details.innerHTML = `
               <div><strong>${escapeHtml(res.sessionId)}</strong></div>
-              <div>Folder upload: ${escapeHtml([
-                res.team || state[mode].team,
-                (document.getElementById(mode + "Date") || {}).value || "",
-                (document.getElementById(mode + "Game") || {}).value || "",
-                res.sessionId,
-              ].filter(Boolean).join(" > "))}</div>
+              <div>Folder upload: ${escapeHtml(
+                [
+                  res.team || state[mode].team,
+                  (document.getElementById(mode + "Date") || {}).value || "",
+                  (document.getElementById(mode + "Game") || {}).value || "",
+                  res.sessionId,
+                ]
+                  .filter(Boolean)
+                  .join(" > "),
+              )}</div>
               <div>Folder hiện tại: ${currentFolderUrl ? `<a href="${escapeHtml(currentFolderUrl)}" target="_blank">Mở thư mục</a>` : "Chưa có link"}</div>
               ${currentMessage ? `<div class="tiny-note mt-2">${escapeHtml(currentMessage)}</div>` : ""}
               ${filesHtml}
@@ -1873,8 +1951,7 @@
       }
 
       function renderFileRow(file, mode, sessionId) {
-        const deleteButton =
-          `
+        const deleteButton = `
               <button
                 type="button"
                 class="btn btn-sm btn-outline-danger"
@@ -1882,8 +1959,7 @@
               >
                 Xóa
               </button>
-            `
-          ;
+            `;
         return `
           <div class="folder-file-row">
             <div>
@@ -1900,10 +1976,7 @@
       }
 
       function deleteFile(fileId, mode, sessionId) {
-        if (
-          !confirm("Bạn có chắc muốn xóa file này không?")
-        )
-          return;
+        if (!confirm("Bạn có chắc muốn xóa file này không?")) return;
 
         const targetRow = state[mode].rows.find((row) => {
           const select = document.getElementById(row.selectId);
@@ -2218,8 +2291,10 @@
           mode,
           team: state[mode].team || "",
           batch: state[mode].batch || "",
-          selectedDate: ((document.getElementById(mode + "Date") || {}).value || ""),
-          selectedGame: ((document.getElementById(mode + "Game") || {}).value || "GTA"),
+          selectedDate:
+            (document.getElementById(mode + "Date") || {}).value || "",
+          selectedGame:
+            (document.getElementById(mode + "Game") || {}).value || "GTA",
           sessionId: document.getElementById(row.selectId).value || "",
         };
 
@@ -2233,15 +2308,27 @@
 
         const started = await apiPostJson("/api/upload-session-start", payload);
         if (!started || !started.ok || !started.uploadSession) {
-          throw new Error(started && started.message ? started.message : "Không thể chuẩn bị upload.");
+          throw new Error(
+            started && started.message
+              ? started.message
+              : "Không thể chuẩn bị upload.",
+          );
         }
 
         const uploadSession = started.uploadSession;
         const uploadedFiles = [];
         try {
-          const csvResult = await uploadFileDirectToDrive(csvFile, uploadSession, "csv");
+          const csvResult = await uploadFileDirectToDrive(
+            csvFile,
+            uploadSession,
+            "csv",
+          );
           uploadedFiles.push(csvResult);
-          const mp4Result = await uploadFileDirectToDrive(mp4File, uploadSession, "mp4");
+          const mp4Result = await uploadFileDirectToDrive(
+            mp4File,
+            uploadSession,
+            "mp4",
+          );
           uploadedFiles.push(mp4Result);
 
           return await apiPostJson("/api/upload-session-complete", {
@@ -2296,7 +2383,12 @@
           },
         );
         if (!initResponse.ok) {
-          throw new Error(await extractDriveError(initResponse, "Không thể khởi tạo phiên upload Drive."));
+          throw new Error(
+            await extractDriveError(
+              initResponse,
+              "Không thể khởi tạo phiên upload Drive.",
+            ),
+          );
         }
 
         const resumableUrl = initResponse.headers.get("location");
@@ -2312,7 +2404,12 @@
           body: file,
         });
         if (!uploadResponse.ok) {
-          throw new Error(await extractDriveError(uploadResponse, `Upload file ${file.name} thất bại.`));
+          throw new Error(
+            await extractDriveError(
+              uploadResponse,
+              `Upload file ${file.name} thất bại.`,
+            ),
+          );
         }
 
         const data = await uploadResponse.json();
@@ -2347,7 +2444,8 @@
         if (response.ok) {
           return data || { ok: true };
         }
-        const message = data && data.message ? data.message : `HTTP ${response.status}`;
+        const message =
+          data && data.message ? data.message : `HTTP ${response.status}`;
         throw new Error(message);
       }
 
@@ -2470,7 +2568,6 @@
           bar.classList.add("progress-bar-striped", "progress-bar-animated");
         }
       }
-
     </script>
   </body>
 </html>

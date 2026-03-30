@@ -20,6 +20,7 @@ import {
   trashFile,
 } from "./services/drive.js";
 import { getUserProfile, REQUIRED_SCOPES } from "./google.js";
+import { getSharedCache, setSharedCache, clearSharedCache } from "./services/cache.js";
 import { classifyUploadedFiles, getDateOptions, normalizeString } from "./utils.js";
 
 const app = express();
@@ -54,6 +55,24 @@ app.get("/api/batches", async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ ok: false, message: `Lỗi khi tải danh sách Batch: ${error.message}` });
+  }
+});
+
+app.get("/api/warm-batches", async (_req, res) => {
+  try {
+    const value = await getBatchMap();
+    batchMapCache.value = value;
+    batchMapCache.expiresAt = Date.now() + BATCH_CACHE_TTL_MS;
+    await setSharedCache("batch_map_v1", value, BATCH_CACHE_TTL_MS);
+    res.json({
+      ok: true,
+      message: "Đã làm nóng cache Batch theo Team.",
+      teams: Object.keys(value || {}).length,
+      warmedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + BATCH_CACHE_TTL_MS).toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({ ok: false, message: `Lỗi khi làm nóng cache Batch: ${error.message}` });
   }
 });
 
@@ -184,7 +203,6 @@ app.post("/api/upload-session-complete", requireGoogleUser, async (req, res) => 
 
     await updateDriverLink(batch, rowNumber, newDriverLink);
     clearSessionCache(batch, team);
-    clearBatchMapCache();
 
     await ensureUploadLogSheet();
     for (const file of uploadedFiles) {
@@ -328,15 +346,25 @@ async function getCachedBatchMap() {
   if (batchMapCache.value && batchMapCache.expiresAt > Date.now()) {
     return batchMapCache.value;
   }
+
+  const shared = await getSharedCache("batch_map_v1");
+  if (shared) {
+    batchMapCache.value = shared;
+    batchMapCache.expiresAt = Date.now() + BATCH_CACHE_TTL_MS;
+    return shared;
+  }
+
   const value = await getBatchMap();
   batchMapCache.value = value;
   batchMapCache.expiresAt = Date.now() + BATCH_CACHE_TTL_MS;
+  await setSharedCache("batch_map_v1", value, BATCH_CACHE_TTL_MS);
   return value;
 }
 
-function clearBatchMapCache() {
+async function clearBatchMapCache() {
   batchMapCache.value = null;
   batchMapCache.expiresAt = 0;
+  await clearSharedCache("batch_map_v1");
 }
 
 async function getCachedSessionRecords(batch, team) {
