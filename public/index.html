@@ -1413,6 +1413,17 @@
         const csvInput = document.getElementById(row.csvField);
         const mp4Input = document.getElementById(row.mp4Field);
         if (!csvInput || !mp4Input) return;
+        const csvFile = (csvInput.files || [])[0];
+        const mp4File = (mp4Input.files || [])[0];
+        renderSequentialFileSelection(row);
+        if (!csvFile) {
+          csvInput.click();
+          return;
+        }
+        if (!mp4File) {
+          mp4Input.click();
+          return;
+        }
         csvInput.value = "";
         mp4Input.value = "";
         renderSequentialFileSelection(row);
