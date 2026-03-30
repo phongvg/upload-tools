@@ -1034,6 +1034,8 @@
           folderPickerId: "folder_picker_" + key,
           filesPickerId: "files_picker_" + key,
           removeBtnId: "remove_btn_" + key,
+          chooseFilesBtnId: "choose_files_btn_" + key,
+          chooseFolderBtnId: "choose_folder_btn_" + key,
           toggleBtnId: "toggle_btn_" + key,
           detailsWrapId: "details_wrap_" + key,
           statusId: "status_" + key,
@@ -1068,14 +1070,18 @@
               <div id="${row.dropZoneId}" class="drop-zone" role="button" tabindex="0">
                 <div class="fw-bold text-primary">Thả 1 folder hoặc 2 file vào đây</div>
                 <div class="tiny-note mt-2">
-                  Folder mode: tên folder phải trùng SessionID.
+                  Folder mode: chỉ cần đúng 1 CSV và 1 MP4 bên trong folder.
                 </div>
                 <div class="tiny-note">
                   File mode: chọn đúng 1 CSV và 1 MP4.
                 </div>
                 <div class="tiny-note mt-2">
-                  Click vào đây để chọn folder. Khi hợp lệ, hệ thống sẽ upload ngay.
+                  Click vào đây để chọn 2 file, hoặc dùng nút riêng để chọn folder.
                 </div>
+              </div>
+              <div class="d-flex gap-2 mt-2">
+                <button type="button" id="${row.chooseFilesBtnId}" class="btn btn-sm btn-outline-primary">Chọn 2 file</button>
+                <button type="button" id="${row.chooseFolderBtnId}" class="btn btn-sm btn-outline-secondary">Chọn folder</button>
               </div>
               <input
                 type="file"
@@ -1173,6 +1179,16 @@
           refreshSessionOptions(mode);
           if (mode === "edit") loadRowSessionDetails(mode, key);
           else renderAddRowHint(mode, key);
+        });
+
+        document.getElementById(row.chooseFilesBtnId).addEventListener("click", (event) => {
+          event.stopPropagation();
+          document.getElementById(row.filesPickerId).click();
+        });
+
+        document.getElementById(row.chooseFolderBtnId).addEventListener("click", (event) => {
+          event.stopPropagation();
+          document.getElementById(row.folderPickerId).click();
         });
 
         document
@@ -1336,12 +1352,12 @@
         if (!zone) return;
 
         zone.addEventListener("click", () => {
-          document.getElementById(row.folderPickerId).click();
+          document.getElementById(row.filesPickerId).click();
         });
         zone.addEventListener("keydown", (event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            document.getElementById(row.folderPickerId).click();
+            document.getElementById(row.filesPickerId).click();
           }
         });
 
@@ -1655,24 +1671,13 @@
               message: "Folder upload phải chỉ có đúng 1 folder gốc.",
             };
           }
-          if (topLevelNames[0] !== sessionId) {
-            return {
-              ok: false,
-              message:
-                'Tên folder phải trùng SessionID. Cần "' +
-                sessionId +
-                '", nhưng nhận được "' +
-                topLevelNames[0] +
-                '".',
-            };
-          }
         } else if (
           uploadableFiles.some((file) => getTopLevelFolderName(file))
         ) {
           return {
             ok: false,
             message:
-              "Bạn đang kéo folder. Hãy dùng đúng folder tên bằng SessionID hoặc chọn đúng 2 file.",
+              "Bạn đang kéo folder. Với SessionID đã chọn, tên folder có thể bất kỳ; hãy dùng nút Chọn folder hoặc chọn trực tiếp 2 file.",
           };
         }
 
@@ -2153,36 +2158,48 @@
       }
 
       async function apiUploadRow(mode, row) {
-        const formData = new FormData();
-        formData.append("mode", mode);
-        formData.append("team", state[mode].team || "");
-        formData.append("batch", state[mode].batch || "");
-        formData.append(
-          "selectedDate",
-          ((document.getElementById(mode + "Date") || {}).value || ""),
-        );
-        formData.append(
-          "selectedGame",
-          ((document.getElementById(mode + "Game") || {}).value || "GTA"),
-        );
-        formData.append("sessionId", document.getElementById(row.selectId).value || "");
+        const payload = {
+          mode,
+          team: state[mode].team || "",
+          batch: state[mode].batch || "",
+          selectedDate: ((document.getElementById(mode + "Date") || {}).value || ""),
+          selectedGame: ((document.getElementById(mode + "Game") || {}).value || "GTA"),
+          sessionId: document.getElementById(row.selectId).value || "",
+        };
 
         const csvInput = document.getElementById(row.csvField);
         const mp4Input = document.getElementById(row.mp4Field);
-        if (csvInput && csvInput.files && csvInput.files[0]) {
-          formData.append("csv", csvInput.files[0]);
-        }
-        if (mp4Input && mp4Input.files && mp4Input.files[0]) {
-          formData.append("mp4", mp4Input.files[0]);
+        const csvFile = csvInput && csvInput.files ? csvInput.files[0] : null;
+        const mp4File = mp4Input && mp4Input.files ? mp4Input.files[0] : null;
+        if (!csvFile || !mp4File) {
+          throw new Error("Thiếu file CSV hoặc MP4 để upload.");
         }
 
-        const response = await fetch("/api/upload", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: buildAuthHeaders(),
-          body: formData,
-        });
-        return parseApiResponse(response);
+        const started = await apiPostJson("/api/upload-session-start", payload);
+        if (!started || !started.ok || !started.uploadSession) {
+          throw new Error(started && started.message ? started.message : "Không thể chuẩn bị upload.");
+        }
+
+        const uploadSession = started.uploadSession;
+        const uploadedFiles = [];
+        try {
+          const csvResult = await uploadFileDirectToDrive(csvFile, uploadSession, "csv");
+          uploadedFiles.push(csvResult);
+          const mp4Result = await uploadFileDirectToDrive(mp4File, uploadSession, "mp4");
+          uploadedFiles.push(mp4Result);
+
+          return await apiPostJson("/api/upload-session-complete", {
+            ...uploadSession,
+            uploadedFiles,
+          });
+        } catch (error) {
+          try {
+            await apiPostJson("/api/upload-session-abort", {
+              ...uploadSession,
+            });
+          } catch (_) {}
+          throw error;
+        }
       }
 
       function buildAuthHeaders(options) {
@@ -2195,6 +2212,73 @@
           headers.Authorization = "Bearer " + authState.accessToken;
         }
         return headers;
+      }
+
+      async function uploadFileDirectToDrive(file, uploadSession, fileType) {
+        const metadata = {
+          name: file.name,
+          parents: [uploadSession.folderId],
+          description: [
+            `session_id: ${uploadSession.sessionId}`,
+            `uploaded_by: ${authState.email || authState.name || ""}`,
+            `file_type: ${fileType}`,
+            `uploaded_at: ${new Date().toISOString()}`,
+          ].join("\n"),
+        };
+
+        const initResponse = await fetch(
+          "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink",
+          {
+            method: "POST",
+            headers: {
+              Authorization: "Bearer " + authState.accessToken,
+              "Content-Type": "application/json; charset=UTF-8",
+              "X-Upload-Content-Type": file.type || "application/octet-stream",
+              "X-Upload-Content-Length": String(file.size || 0),
+            },
+            body: JSON.stringify(metadata),
+          },
+        );
+        if (!initResponse.ok) {
+          throw new Error(await extractDriveError(initResponse, "Không thể khởi tạo phiên upload Drive."));
+        }
+
+        const resumableUrl = initResponse.headers.get("location");
+        if (!resumableUrl) {
+          throw new Error("Drive không trả về URL resumable upload.");
+        }
+
+        const uploadResponse = await fetch(resumableUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Type": file.type || "application/octet-stream",
+          },
+          body: file,
+        });
+        if (!uploadResponse.ok) {
+          throw new Error(await extractDriveError(uploadResponse, `Upload file ${file.name} thất bại.`));
+        }
+
+        const data = await uploadResponse.json();
+        return {
+          id: data.id || "",
+          name: data.name || file.name,
+          webViewLink: data.webViewLink || "",
+          fileType,
+        };
+      }
+
+      async function extractDriveError(response, fallbackMessage) {
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch (_) {
+          payload = null;
+        }
+        if (payload && payload.error && payload.error.message) {
+          return payload.error.message;
+        }
+        return `${fallbackMessage} HTTP ${response.status}`;
       }
 
       async function parseApiResponse(response) {
