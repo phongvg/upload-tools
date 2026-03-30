@@ -1,0 +1,230 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Upload Tools Cloud</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+    />
+    <style>
+      body {
+        padding: 24px;
+        background: linear-gradient(180deg, #eef4ff 0%, #f6f8fc 100%);
+      }
+      .app {
+        max-width: 1120px;
+        margin: auto;
+        background: #fff;
+        padding: 28px;
+        border-radius: 18px;
+        box-shadow: 0 16px 40px rgba(38, 69, 120, 0.12);
+      }
+      .panel-box {
+        background: #f8fbff;
+        border: 1px solid #d8e7ff;
+        border-radius: 14px;
+        padding: 18px;
+        margin-bottom: 20px;
+      }
+      .status-box {
+        white-space: pre-wrap;
+      }
+      .batch-select {
+        min-height: 180px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <h3 class="text-center text-primary mb-4">Upload Tools Cloud</h3>
+      <div class="panel-box">
+        <div class="row">
+          <div class="col-md-3 mb-3">
+            <label class="form-label fw-bold">Team</label>
+            <select id="team" class="form-select"></select>
+          </div>
+          <div class="col-md-3 mb-3">
+            <label class="form-label fw-bold">Tìm Batch</label>
+            <input id="batchSearch" class="form-control" placeholder="Tìm Batch..." />
+          </div>
+          <div class="col-md-3 mb-3">
+            <label class="form-label fw-bold">Ngày</label>
+            <select id="date" class="form-select"></select>
+          </div>
+          <div class="col-md-3 mb-3">
+            <label class="form-label fw-bold">Game</label>
+            <select id="game" class="form-select"></select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-md-6">
+            <label class="form-label fw-bold">Batch</label>
+            <select id="batch" class="form-select batch-select" size="7"></select>
+          </div>
+          <div class="col-md-6">
+            <div id="status" class="alert alert-info status-box mb-0">Đang tải...</div>
+          </div>
+        </div>
+      </div>
+      <div class="panel-box">
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label class="form-label fw-bold">Mode</label>
+            <select id="mode" class="form-select">
+              <option value="add">Tạo mới</option>
+              <option value="edit">Chỉnh sửa</option>
+            </select>
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label fw-bold">SessionID</label>
+            <select id="session" class="form-select"></select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label class="form-label fw-bold">CSV</label>
+            <input id="csv" type="file" class="form-control" accept=".csv" />
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label fw-bold">MP4</label>
+            <input id="mp4" type="file" class="form-control" accept=".mp4" />
+          </div>
+        </div>
+        <div class="d-flex gap-2">
+          <button id="uploadBtn" class="btn btn-primary">Upload</button>
+        </div>
+        <div id="result" class="alert d-none status-box mt-3 mb-0"></div>
+      </div>
+    </div>
+    <script>
+      const state = { batches: [], records: [] };
+
+      window.addEventListener("load", async () => {
+        const res = await fetch("/api/bootstrap").then((r) => r.json());
+        populateSelect("team", ["", ...(res.teams || [])], "-");
+        populateSelect("date", res.dateOptions || []);
+        populateSelect("game", res.games || []);
+        const dates = res.dateOptions || [];
+        if (dates.length > 1) {
+          document.getElementById("date").value = dates[dates.length - 2];
+        }
+        document.getElementById("status").innerText = "Chọn Team để tải danh sách Batch.";
+      });
+
+      document.getElementById("team").addEventListener("change", loadBatches);
+      document.getElementById("batch").addEventListener("change", loadSessions);
+      document.getElementById("batchSearch").addEventListener("input", renderBatches);
+      document.getElementById("mode").addEventListener("change", renderSessions);
+      document.getElementById("uploadBtn").addEventListener("click", uploadSession);
+
+      function populateSelect(id, values, placeholder) {
+        const select = document.getElementById(id);
+        select.innerHTML = "";
+        if (placeholder !== undefined) {
+          select.add(new Option(placeholder, ""));
+        }
+        values.forEach((value) => {
+          if (!value) return;
+          select.add(new Option(value, value));
+        });
+      }
+
+      async function loadBatches() {
+        const team = document.getElementById("team").value;
+        state.batches = [];
+        state.records = [];
+        populateSelect("batch", [], "Chọn Batch...");
+        populateSelect("session", [], "Chọn SessionID...");
+        if (!team) {
+          document.getElementById("status").innerText = "Chọn Team để tải danh sách Batch.";
+          return;
+        }
+        document.getElementById("status").innerText = "Đang tải Batch theo Team...";
+        const startedAt = Date.now();
+        const res = await fetch(`/api/batches?team=${encodeURIComponent(team)}`).then((r) => r.json());
+        if (!res.ok) {
+          document.getElementById("status").innerText = res.message || "Không thể tải danh sách Batch.";
+          return;
+        }
+        state.batches = res.batches || [];
+        renderBatches();
+        document.getElementById("status").innerText =
+          `Đã tải danh sách Batch.\nClient: ${Date.now() - startedAt}ms\nServer: ${res.debugMs || 0}ms`;
+      }
+
+      function renderBatches() {
+        const query = (document.getElementById("batchSearch").value || "").toLowerCase();
+        const filtered = state.batches.filter((item) => item.toLowerCase().includes(query));
+        populateSelect("batch", filtered, "Chọn Batch...");
+      }
+
+      async function loadSessions() {
+        const team = document.getElementById("team").value;
+        const batch = document.getElementById("batch").value;
+        const mode = document.getElementById("mode").value;
+        state.records = [];
+        populateSelect("session", [], "Chọn SessionID...");
+        if (!team || !batch) {
+          document.getElementById("status").innerText = "Chọn Batch để tải danh sách Session.";
+          return;
+        }
+        document.getElementById("status").innerText = "Đang tải danh sách Session...";
+        const startedAt = Date.now();
+        const params = new URLSearchParams({ team, batch, mode });
+        const res = await fetch(`/api/sessions?${params.toString()}`).then((r) => r.json());
+        if (!res.ok) {
+          document.getElementById("status").innerText = res.message || "Không thể tải danh sách Session.";
+          return;
+        }
+        state.records = res.records || [];
+        renderSessions();
+        document.getElementById("status").innerText =
+          `Đã tải danh sách Session.\nClient: ${Date.now() - startedAt}ms\nServer: ${res.debugMs || 0}ms`;
+      }
+
+      function renderSessions() {
+        const values = state.records.map((item) => item.sessionId);
+        populateSelect("session", values, "Chọn SessionID...");
+      }
+
+      async function uploadSession() {
+        const team = document.getElementById("team").value;
+        const batch = document.getElementById("batch").value;
+        const mode = document.getElementById("mode").value;
+        const selectedDate = document.getElementById("date").value;
+        const selectedGame = document.getElementById("game").value;
+        const sessionId = document.getElementById("session").value;
+        const csv = document.getElementById("csv").files[0];
+        const mp4 = document.getElementById("mp4").files[0];
+
+        if (!team || !batch || !sessionId || !csv || !mp4) {
+          showResult(false, "Thiếu dữ liệu upload.");
+          return;
+        }
+
+        const formData = new FormData();
+        formData.set("mode", mode);
+        formData.set("team", team);
+        formData.set("batch", batch);
+        formData.set("selectedDate", selectedDate);
+        formData.set("selectedGame", selectedGame);
+        formData.set("sessionId", sessionId);
+        formData.set("csv", csv);
+        formData.set("mp4", mp4);
+
+        showResult(true, "Đang upload...");
+        const res = await fetch("/api/upload", { method: "POST", body: formData }).then((r) => r.json());
+        showResult(!!res.ok, res.message || "Đã xử lý xong yêu cầu.");
+      }
+
+      function showResult(ok, message) {
+        const box = document.getElementById("result");
+        box.className = `alert ${ok ? "alert-success" : "alert-danger"} status-box mt-3 mb-0`;
+        box.innerText = message;
+        box.classList.remove("d-none");
+      }
+    </script>
+  </body>
+</html>
