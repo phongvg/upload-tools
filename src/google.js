@@ -2,6 +2,7 @@ import { google } from "googleapis";
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+let serviceAccountAuthPromise = null;
 
 function getAccessTokenAuth(accessToken) {
   if (!accessToken) {
@@ -12,8 +13,17 @@ function getAccessTokenAuth(accessToken) {
   return auth;
 }
 
-export async function getSheets(accessToken) {
-  const auth = getAccessTokenAuth(accessToken);
+async function getServiceAccountAuth() {
+  if (!serviceAccountAuthPromise) {
+    serviceAccountAuthPromise = new google.auth.GoogleAuth({
+      scopes: [SHEETS_SCOPE],
+    }).getClient();
+  }
+  return serviceAccountAuthPromise;
+}
+
+export async function getSheets() {
+  const auth = await getServiceAccountAuth();
   return google.sheets({ version: "v4", auth });
 }
 
@@ -31,7 +41,6 @@ export async function getUserProfile(accessToken) {
 
 export const REQUIRED_SCOPES = [
   DRIVE_SCOPE,
-  SHEETS_SCOPE,
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
 ];

@@ -9,8 +9,8 @@ import {
 
 const ASSIGNMENT_RANGE = `${config.assignmentSheet}!A2:B102`;
 
-export async function getBatchMap(accessToken) {
-  const sheets = await getSheets(accessToken);
+export async function getBatchMap() {
+  const sheets = await getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: config.spreadsheetId,
     range: ASSIGNMENT_RANGE,
@@ -32,8 +32,8 @@ export async function getBatchMap(accessToken) {
   return map;
 }
 
-async function getSheetMatrix(batchName, accessToken) {
-  const sheets = await getSheets(accessToken);
+async function getSheetMatrix(batchName) {
+  const sheets = await getSheets();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: config.spreadsheetId,
     range: `${batchName}!A:Z`,
@@ -69,8 +69,8 @@ function buildRecord(row, rowIndex, layout, selectedTeam, includeDriverLink) {
   };
 }
 
-export async function getBatchListRecords(batchName, selectedTeam, accessToken) {
-  const { values, layout } = await getSheetMatrix(batchName, accessToken);
+export async function getBatchListRecords(batchName, selectedTeam) {
+  const { values, layout } = await getSheetMatrix(batchName);
   const records = [];
   for (let i = 1; i < values.length; i += 1) {
     const record = buildRecord(values[i] || [], i + 1, layout, selectedTeam, false);
@@ -81,8 +81,8 @@ export async function getBatchListRecords(batchName, selectedTeam, accessToken) 
   return records;
 }
 
-export async function getBatchRecords(batchName, selectedTeam, accessToken) {
-  const { values, layout } = await getSheetMatrix(batchName, accessToken);
+export async function getBatchRecords(batchName, selectedTeam) {
+  const { values, layout } = await getSheetMatrix(batchName);
   const records = [];
   for (let i = 1; i < values.length; i += 1) {
     const record = buildRecord(values[i] || [], i + 1, layout, selectedTeam, true);
@@ -93,14 +93,14 @@ export async function getBatchRecords(batchName, selectedTeam, accessToken) {
   return records;
 }
 
-export async function findBatchRecord(batchName, sessionId, selectedTeam, accessToken) {
-  const records = await getBatchRecords(batchName, selectedTeam, accessToken);
+export async function findBatchRecord(batchName, sessionId, selectedTeam) {
+  const records = await getBatchRecords(batchName, selectedTeam);
   return records.find((item) => item.sessionId === normalizeString(sessionId)) || null;
 }
 
-export async function updateDriverLink(batchName, rowNumber, folderUrl, accessToken) {
-  const sheets = await getSheets(accessToken);
-  const { layout } = await getSheetMatrix(batchName, accessToken);
+export async function updateDriverLink(batchName, rowNumber, folderUrl) {
+  const sheets = await getSheets();
+  const { layout } = await getSheetMatrix(batchName);
   const column = layout.driverLink + 1;
   await sheets.spreadsheets.values.update({
     spreadsheetId: config.spreadsheetId,
@@ -112,8 +112,8 @@ export async function updateDriverLink(batchName, rowNumber, folderUrl, accessTo
   });
 }
 
-export async function ensureLogSheet(sheetName, headers, accessToken) {
-  const sheets = await getSheets(accessToken);
+export async function ensureLogSheet(sheetName, headers) {
+  const sheets = await getSheets();
   const spreadsheet = await sheets.spreadsheets.get({
     spreadsheetId: config.spreadsheetId,
     fields: "sheets.properties",
@@ -148,8 +148,8 @@ export async function ensureLogSheet(sheetName, headers, accessToken) {
   }
 }
 
-export async function appendRow(sheetName, row, accessToken) {
-  const sheets = await getSheets(accessToken);
+export async function appendRow(sheetName, row) {
+  const sheets = await getSheets();
   await sheets.spreadsheets.values.append({
     spreadsheetId: config.spreadsheetId,
     range: `${sheetName}!A1`,
