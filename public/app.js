@@ -574,6 +574,7 @@ function addUploadRow(mode, preferredSessionId) {
     progressTimer: null,
     summaryKind: "idle",
     summaryText: "Chưa tải lên",
+    lastDetailsSessionId: "",
   };
   modeState.rows.push(row);
   const container = document.getElementById(mode + "Rows");
@@ -710,8 +711,7 @@ function addUploadRow(mode, preferredSessionId) {
       return;
     }
     refreshSessionOptions(mode);
-    if (mode === "edit") loadRowSessionDetails(mode, key);
-    else renderAddRowHint(mode, key);
+    if (mode !== "edit") renderAddRowHint(mode, key);
   });
   document
     .getElementById(row.chooseFilesBtnId)
@@ -744,6 +744,17 @@ function addUploadRow(mode, preferredSessionId) {
       if (getFileExtension(file.name) !== "csv") {
         showRowStatus(mode, key, false, "File đầu tiên phải là CSV.");
         event.target.value = "";
+        return;
+      }
+      const sessionId = (document.getElementById(row.selectId) || {}).value || "";
+      const fileNameValidationMessage = getSessionFileNameMismatch(
+        [file],
+        sessionId,
+      );
+      if (fileNameValidationMessage) {
+        showRowStatus(mode, key, false, fileNameValidationMessage);
+        event.target.value = "";
+        renderSequentialFileSelection(row);
         return;
       }
       renderSequentialFileSelection(row);
@@ -936,8 +947,14 @@ function refreshSessionOptions(mode) {
       searchInput.value = row.searchQuery || "";
     }
     updateRowSummary(mode, row.key);
-    if (mode === "edit") loadRowSessionDetails(mode, row.key);
-    else renderAddRowHint(mode, row.key);
+    if (mode === "edit") {
+      const sessionId = select.value || "";
+      if (sessionId !== row.lastDetailsSessionId) {
+        loadRowSessionDetails(mode, row.key);
+      }
+    } else {
+      renderAddRowHint(mode, row.key);
+    }
   });
 }
 function bindDropZone(mode, key) {
@@ -1268,6 +1285,16 @@ function validateSelectedFiles(files, sessionId, sourceType) {
         message: "Trong folder chỉ được có 1 file MP4 hợp lệ để upload.",
       };
     }
+    const fileNameValidationMessage = getSessionFileNameMismatch(
+      [csvFiles[0], mp4Files[0]],
+      sessionId,
+    );
+    if (fileNameValidationMessage) {
+      return {
+        ok: false,
+        message: fileNameValidationMessage,
+      };
+    }
     return {
       ok: true,
       files: [csvFiles[0], mp4Files[0]],
@@ -1284,6 +1311,16 @@ function validateSelectedFiles(files, sessionId, sourceType) {
     .sort();
   if (extensions.join(",") !== "csv,mp4") {
     return { ok: false, message: "Chỉ chấp nhận đúng 1 CSV và 1 MP4." };
+  }
+  const fileNameValidationMessage = getSessionFileNameMismatch(
+    uploadableFiles,
+    sessionId,
+  );
+  if (fileNameValidationMessage) {
+    return {
+      ok: false,
+      message: fileNameValidationMessage,
+    };
   }
   return {
     ok: true,
@@ -1322,15 +1359,21 @@ function renderAddRowHint(mode, key) {
     )}</div>
   `;
 }
-function loadRowSessionDetails(mode, key) {
+function loadRowSessionDetails(mode, key, options) {
   const row = state[mode].rows.find((item) => item.key === key);
   if (!row) return;
   const details = document.getElementById(row.detailsId);
   const sessionId = document.getElementById(row.selectId).value;
+  const forceReload = !!(options && options.forceReload);
   if (!sessionId) {
+    row.lastDetailsSessionId = "";
     details.innerHTML = `<div class="text-danger">Chưa chọn SessionID.</div>`;
     return;
   }
+  if (!forceReload && row.lastDetailsSessionId === sessionId) {
+    return;
+  }
+  row.lastDetailsSessionId = sessionId;
   details.innerHTML = `<div class="text-muted">Đang tải file hiện tại...</div>`;
   apiGet("/api/session-details", {
     batch: state[mode].batch,
@@ -1340,6 +1383,7 @@ function loadRowSessionDetails(mode, key) {
   })
     .then((res) => {
       if (!res || !res.ok) {
+        row.lastDetailsSessionId = "";
         details.innerHTML = `<div class="text-danger">${escapeHtml(res && res.message ? res.message : "Không thể tải chi tiết SessionID.")}</div>`;
         return;
       }
@@ -1373,6 +1417,7 @@ function loadRowSessionDetails(mode, key) {
       `;
     })
     .catch((err) => {
+      row.lastDetailsSessionId = "";
       details.innerHTML = `<div class="text-danger">Lỗi khi tải chi tiết SessionID: ${escapeHtml(normalizeError(err))}</div>`;
     });
 }
@@ -1430,7 +1475,7 @@ function deleteFile(fileId, mode, sessionId) {
         state[mode].rows.forEach((row) => {
           const select = document.getElementById(row.selectId);
           if (select && select.value === sessionId && mode === "edit") {
-            loadRowSessionDetails(mode, row.key);
+            loadRowSessionDetails(mode, row.key, { forceReload: true });
           }
         });
       }
@@ -1487,6 +1532,15 @@ function uploadRow(mode, key) {
     );
     return;
   }
+  const fileValidation = validateSelectedFiles(
+    [csvInput.files[0], mp4Input.files[0]],
+    sessionId,
+    "files",
+  );
+  if (!fileValidation.ok) {
+    showRowStatus(mode, key, false, fileValidation.message);
+    return;
+  }
   const manifest = [
     {
       sessionId,
@@ -1528,7 +1582,7 @@ function uploadRow(mode, key) {
         );
         if (res && res.ok && res.result) {
           row.uploadMeta = res.result;
-          loadRowSessionDetails(mode, key);
+          loadRowSessionDetails(mode, key, { forceReload: true });
         }
       })
       .catch((err) => {
@@ -1744,6 +1798,16 @@ async function apiUploadRow(mode, row) {
   if (!csvFile || !mp4File) {
     throw new Error("Thiếu file CSV hoặc MP4 để upload.");
   }
+  const fileValidation = validateSelectedFiles(
+    [csvFile, mp4File],
+    payload.sessionId,
+    "files",
+  );
+  if (!fileValidation.ok) {
+    throw new Error(fileValidation.message);
+  }
+  payload.csvFileName = csvFile.name || "";
+  payload.mp4FileName = mp4File.name || "";
   const started = await apiPostJson("/api/upload-session-start", payload);
   if (!started || !started.ok || !started.uploadSession) {
     throw new Error(
@@ -1966,6 +2030,35 @@ function getFileExtension(fileName) {
     .toLowerCase()
     .split(".");
   return parts.length > 1 ? parts.pop() : "";
+}
+function getFileStem(fileName) {
+  const normalized = String(fileName || "").trim();
+  const dotIndex = normalized.lastIndexOf(".");
+  return dotIndex > 0 ? normalized.slice(0, dotIndex).trim() : normalized;
+}
+function fileStemMatchesSessionId(fileName, sessionId) {
+  return (
+    getFileStem(fileName).toUpperCase() ===
+    String(sessionId || "").trim().toUpperCase()
+  );
+}
+function getSessionFileNameMismatch(files, sessionId) {
+  const normalizedSessionId = String(sessionId || "").trim();
+  const invalidNames = (files || [])
+    .filter(Boolean)
+    .map((file) => String((file && file.name) || "").trim())
+    .filter(
+      (fileName) =>
+        fileName &&
+        !fileStemMatchesSessionId(fileName, normalizedSessionId),
+    );
+  if (!invalidNames.length) {
+    return "";
+  }
+  const quotedNames = invalidNames.map((fileName) => `"${fileName}"`).join(", ");
+  return invalidNames.length === 1
+    ? `Tên file ${quotedNames} phải trùng SessionID "${normalizedSessionId}" (chỉ khác phần đuôi .csv/.mp4).`
+    : `Các file ${quotedNames} phải trùng SessionID "${normalizedSessionId}" (chỉ khác phần đuôi .csv/.mp4).`;
 }
 function splitFilesForUpload(files) {
   let csv = null;

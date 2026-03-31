@@ -48,6 +48,16 @@ export function getExtension(fileName) {
   return parts.length > 1 ? parts.pop() : "";
 }
 
+export function getFileStem(fileName) {
+  const normalized = normalizeString(fileName);
+  const dotIndex = normalized.lastIndexOf(".");
+  return dotIndex > 0 ? normalized.slice(0, dotIndex).trim() : normalized;
+}
+
+export function fileStemMatchesSessionId(fileName, sessionId) {
+  return getFileStem(fileName).toUpperCase() === normalizeString(sessionId).toUpperCase();
+}
+
 export function classifyUploadedFiles(files) {
   let csv = null;
   let mp4 = null;

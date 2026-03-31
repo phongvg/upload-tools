@@ -19,7 +19,12 @@ import {
 } from "./services/drive.js";
 import { getUserProfile, REQUIRED_SCOPES } from "./google.js";
 import { getSharedCache, setSharedCache } from "./services/cache.js";
-import { extractFolderId, getTodayDate, normalizeString } from "./utils.js";
+import {
+  extractFolderId,
+  fileStemMatchesSessionId,
+  getTodayDate,
+  normalizeString,
+} from "./utils.js";
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -139,6 +144,8 @@ app.post("/api/upload-session-start", requireGoogleUser, async (req, res) => {
     const selectedDate = normalizeString(req.body.selectedDate);
     const selectedGame = normalizeString(req.body.selectedGame) || "GTA";
     const sessionId = normalizeString(req.body.sessionId);
+    const csvFileName = normalizeString(req.body.csvFileName);
+    const mp4FileName = normalizeString(req.body.mp4FileName);
     const record = await findBatchRecord(batch, sessionId, team);
     if (!record) {
       res.status(400).json({ ok: false, message: `SessionID "${sessionId}" không tồn tại trong Batch đã chọn.` });
@@ -150,6 +157,11 @@ app.post("/api/upload-session-start", requireGoogleUser, async (req, res) => {
     }
     if (mode === "edit" && !record.hasDriver) {
       res.status(400).json({ ok: false, message: `SessionID "${sessionId}" chưa có link trên Sheet nên không thể chỉnh sửa.` });
+      return;
+    }
+    const fileNameValidationMessage = getSessionFileNameMismatch([csvFileName, mp4FileName], sessionId);
+    if (fileNameValidationMessage) {
+      res.status(400).json({ ok: false, message: fileNameValidationMessage });
       return;
     }
     const targetParent = await getCachedGameFolderForPath(
@@ -219,6 +231,14 @@ app.post("/api/upload-session-complete", requireGoogleUser, async (req, res) => 
     const record = await findBatchRecord(batch, sessionId, team);
     if (!record || !record.rowNumber) {
       res.status(400).json({ ok: false, message: `Không tìm thấy đúng dòng Sheet cho SessionID "${sessionId}".` });
+      return;
+    }
+    const fileNameValidationMessage = getSessionFileNameMismatch(
+      uploadedFiles.map((file) => (file ? file.name : "")),
+      sessionId,
+    );
+    if (fileNameValidationMessage) {
+      res.status(400).json({ ok: false, message: fileNameValidationMessage });
       return;
     }
     await updateDriverLink(batch, record.rowNumber, newDriverLink);
@@ -446,6 +466,18 @@ function getAccessTokenFromRequest(req) {
   if (!authHeader.startsWith("Bearer ")) return "";
   return normalizeString(authHeader.slice(7));
 }
+function getSessionFileNameMismatch(fileNames, sessionId) {
+  const normalizedSessionId = normalizeString(sessionId);
+  const invalidFileName = (Array.isArray(fileNames) ? fileNames : [])
+    .map((fileName) => normalizeString(fileName))
+    .find(
+      (fileName) =>
+        fileName && !fileStemMatchesSessionId(fileName, normalizedSessionId),
+    );
+  return invalidFileName
+    ? `Tên file "${invalidFileName}" phải trùng SessionID "${normalizedSessionId}" (chỉ khác phần đuôi .csv/.mp4).`
+    : "";
+}
 async function appendUploadLogEntries({
   stage,
   email,
@@ -470,45 +502,24 @@ async function appendUploadLogEntries({
   const normalizedSessionId = normalizeString(sessionId);
   const normalizedOldDriverLink = normalizeString(oldDriverLink);
   const normalizedNewDriverLink = normalizeString(newDriverLink);
-  const normalizedFiles = Array.isArray(files) ? files : [];
-  const rows = normalizedFiles.length
-    ? normalizedFiles.map((file) => [
-        new Date().toISOString(),
-        normalizedEmail,
-        normalizedStage,
-        normalizedMode,
-        normalizedBatch,
-        normalizedTeam,
-        normalizedDate,
-        normalizedGame,
-        normalizedSessionId,
-        normalizedOldDriverLink,
-        normalizedNewDriverLink,
-        normalizeString(file.id),
-        normalizeString(file.name),
-        normalizeString(file.webViewLink),
-        normalizeString(file.fileType),
-      ])
-    : [[
-        new Date().toISOString(),
-        normalizedEmail,
-        normalizedStage,
-        normalizedMode,
-        normalizedBatch,
-        normalizedTeam,
-        normalizedDate,
-        normalizedGame,
-        normalizedSessionId,
-        normalizedOldDriverLink,
-        normalizedNewDriverLink,
-        "",
-        "",
-        "",
-        "",
-      ]];
-  for (const row of rows) {
-    await appendRow(config.uploadLogSheet, row);
-  }
+  const fileSummary = summarizeUploadFiles(files);
+  await appendRow(config.uploadLogSheet, [
+    new Date().toISOString(),
+    normalizedEmail,
+    normalizedStage,
+    normalizedMode,
+    normalizedBatch,
+    normalizedTeam,
+    normalizedDate,
+    normalizedGame,
+    normalizedSessionId,
+    normalizedOldDriverLink,
+    normalizedNewDriverLink,
+    fileSummary.ids,
+    fileSummary.names,
+    fileSummary.urls,
+    fileSummary.types,
+  ]);
 }
 async function appendDeleteLogEntry({
   action,
@@ -538,6 +549,27 @@ async function appendDeleteLogEntry({
     normalizeString(newDriverLink),
     normalizeString(restoreMode),
   ]);
+}
+function summarizeUploadFiles(files) {
+  const normalizedFiles = Array.isArray(files) ? files.filter(Boolean) : [];
+  return {
+    ids: normalizedFiles
+      .map((file) => normalizeString(file.id))
+      .filter(Boolean)
+      .join(" | "),
+    names: normalizedFiles
+      .map((file) => normalizeString(file.name))
+      .filter(Boolean)
+      .join(" | "),
+    urls: normalizedFiles
+      .map((file) => normalizeString(file.webViewLink))
+      .filter(Boolean)
+      .join(" | "),
+    types: normalizedFiles
+      .map((file) => normalizeString(file.fileType))
+      .filter(Boolean)
+      .join(" | "),
+  };
 }
 function getDriveFolderUrl(folderId, originalValue) {
   const value = normalizeString(originalValue);
