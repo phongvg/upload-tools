@@ -1,0 +1,2051 @@
+const state = {
+  add: createModeState("add"),
+  edit: createModeState("edit"),
+};
+const authState = {
+  clientId: "",
+  scopes: [],
+  accessToken: "",
+  accessTokenExpiresAt: 0,
+  tokenClient: null,
+  email: "",
+  name: "",
+  pendingTokenRequest: null,
+};
+window.onload = function () {
+  bindModeEvents("add");
+  bindModeEvents("edit");
+  bindAuthEvents();
+  loadInitialData();
+};
+function bindAuthEvents() {
+  const loginBtn = document.getElementById("loginBtn");
+  const logoutBtn = document.getElementById("logoutBtn");
+  if (loginBtn) {
+    loginBtn.addEventListener("click", () => {
+      loginWithGoogle();
+    });
+  }
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", () => {
+      logoutGoogle();
+    });
+  }
+}
+function initGoogleAuth() {
+  if (
+    !authState.clientId ||
+    !window.google ||
+    !google.accounts ||
+    !google.accounts.oauth2
+  ) {
+    return;
+  }
+  authState.tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: authState.clientId,
+    scope: (authState.scopes || []).join(" "),
+    callback: handleGoogleTokenResponse,
+  });
+}
+async function loginWithGoogle() {
+  if (!authState.tokenClient) {
+    showAuthMessage(
+      "Thiếu GOOGLE_CLIENT_ID hoặc Google Identity chưa sẵn sàng.",
+      true,
+    );
+    return;
+  }
+  try {
+    await requestGoogleAccessToken({
+      interactive: !authState.accessToken,
+      refreshProfile: true,
+    });
+  } catch (error) {
+    showAuthMessage(normalizeError(error), true);
+  }
+}
+function logoutGoogle() {
+  if (
+    authState.accessToken &&
+    window.google &&
+    google.accounts &&
+    google.accounts.oauth2
+  ) {
+    google.accounts.oauth2.revoke(authState.accessToken, () => {});
+  }
+  authState.accessToken = "";
+  authState.accessTokenExpiresAt = 0;
+  authState.email = "";
+  authState.name = "";
+  authState.pendingTokenRequest = null;
+  updateAuthUi();
+}
+function updateAuthUi() {
+  const status = document.getElementById("authStatus");
+  const loginBtn = document.getElementById("loginBtn");
+  const logoutBtn = document.getElementById("logoutBtn");
+  const loginGate = document.getElementById("loginGate");
+  const mainApp = document.getElementById("mainApp");
+  const userChip = document.getElementById("userChip");
+  const loggedIn = !!authState.accessToken;
+  if (status) {
+    status.innerText = loggedIn
+      ? `Đang đăng nhập: ${authState.name || authState.email || "Google User"}`
+      : "Chưa đăng nhập.";
+  }
+  if (loginBtn) loginBtn.classList.toggle("d-none", loggedIn);
+  if (logoutBtn) logoutBtn.classList.toggle("d-none", !loggedIn);
+  if (loginGate) loginGate.classList.toggle("d-none", loggedIn);
+  if (mainApp) mainApp.classList.toggle("d-none", !loggedIn);
+  if (userChip) {
+    userChip.classList.toggle("d-none", !loggedIn);
+    userChip.innerText = loggedIn
+      ? authState.name || authState.email || "Google User"
+      : "";
+  }
+}
+function showAuthMessage(message, isError) {
+  const status = document.getElementById("authStatus");
+  if (!status) return;
+  status.innerText = message;
+  status.className = "auth-status" + (isError ? " text-danger" : "");
+}
+async function handleGoogleTokenResponse(tokenResponse) {
+  const pending = authState.pendingTokenRequest;
+  authState.pendingTokenRequest = null;
+  if (!tokenResponse || tokenResponse.error) {
+    if (pending && !pending.interactive) {
+      authState.accessToken = "";
+      authState.accessTokenExpiresAt = 0;
+      updateAuthUi();
+    }
+    const error = new Error(
+      tokenResponse && tokenResponse.error
+        ? `Đăng nhập thất bại: ${tokenResponse.error}`
+        : "Không thể lấy access token Google.",
+    );
+    if (pending) {
+      pending.reject(error);
+      return;
+    }
+    showAuthMessage(error.message, true);
+    return;
+  }
+  authState.accessToken = tokenResponse.access_token || "";
+  authState.accessTokenExpiresAt = tokenResponse.expires_in
+    ? Date.now() + Number(tokenResponse.expires_in) * 1000
+    : 0;
+  try {
+    if (
+      !authState.email ||
+      !authState.name ||
+      (pending && pending.refreshProfile)
+    ) {
+      const me = await apiGet("/api/me", {}, {
+        public: false,
+        retryOnAuthFailure: false,
+      });
+      authState.email = me.email || "";
+      authState.name = me.name || "";
+    }
+    updateAuthUi();
+    if (pending) {
+      pending.resolve(authState.accessToken);
+    }
+  } catch (error) {
+    authState.accessToken = "";
+    authState.accessTokenExpiresAt = 0;
+    updateAuthUi();
+    if (pending) {
+      pending.reject(error);
+      return;
+    }
+    showAuthMessage(normalizeError(error), true);
+  }
+}
+function requestGoogleAccessToken(options) {
+  if (!authState.tokenClient) {
+    return Promise.reject(
+      new Error("Thiếu GOOGLE_CLIENT_ID hoặc Google Identity chưa sẵn sàng."),
+    );
+  }
+  if (authState.pendingTokenRequest) {
+    return authState.pendingTokenRequest.promise;
+  }
+  const interactive = !!(options && options.interactive);
+  const refreshProfile = !!(options && options.refreshProfile);
+  const pending = {};
+  pending.interactive = interactive;
+  pending.refreshProfile = refreshProfile;
+  pending.promise = new Promise((resolve, reject) => {
+    pending.resolve = resolve;
+    pending.reject = reject;
+  });
+  authState.pendingTokenRequest = pending;
+  try {
+    authState.tokenClient.requestAccessToken({
+      prompt: interactive ? "consent" : "",
+    });
+  } catch (error) {
+    authState.pendingTokenRequest = null;
+    pending.reject(error);
+  }
+  return pending.promise;
+}
+async function ensureFreshGoogleAccessToken(minTtlMs) {
+  const ttlMs = Number(minTtlMs || 0);
+  if (!authState.accessToken) {
+    throw new Error("Vui lòng đăng nhập Google trước.");
+  }
+  if (!authState.accessTokenExpiresAt) {
+    return authState.accessToken;
+  }
+  if (
+    authState.accessTokenExpiresAt &&
+    authState.accessTokenExpiresAt - Date.now() > ttlMs
+  ) {
+    return authState.accessToken;
+  }
+  return requestGoogleAccessToken({ interactive: false, refreshProfile: false });
+}
+function createModeState(mode) {
+  return {
+    mode,
+    team: "",
+    batch: "",
+    searchQuery: "",
+    batchOptions: [],
+    records: [],
+    recordsLoaded: false,
+    rowCounter: 0,
+    rows: [],
+    debounceTimer: null,
+  };
+}
+function bindModeEvents(mode) {
+  document
+    .getElementById(mode + "Team")
+    .addEventListener("change", () => {
+      onTeamChange(mode);
+    });
+  document
+    .getElementById(mode + "Batch")
+    .addEventListener("change", () => {
+      onBatchChange(mode);
+    });
+  const dateSelect = document.getElementById(mode + "Date");
+  const gameSelect = document.getElementById(mode + "Game");
+  bindBulkDropZone(mode);
+  if (dateSelect) {
+    dateSelect.addEventListener("change", () => {
+      document.getElementById(mode + "SelectedDate").value =
+        dateSelect.value;
+      updateMetaStatus(mode);
+    });
+  }
+  if (gameSelect) {
+    gameSelect.addEventListener("change", () => {
+      document.getElementById(mode + "SelectedGame").value =
+        gameSelect.value;
+      updateMetaStatus(mode);
+    });
+  }
+  const bulkPicker = document.getElementById(mode + "BulkFolderPicker");
+  if (bulkPicker) {
+    bulkPicker.addEventListener("change", (event) => {
+      handleBulkFolderFiles(mode, Array.from(event.target.files || []));
+      event.target.value = "";
+    });
+  }
+  document
+    .getElementById(mode + "BatchSearch")
+    .addEventListener("input", (event) => {
+      clearTimeout(state[mode].debounceTimer);
+      state[mode].debounceTimer = setTimeout(() => {
+        state[mode].searchQuery = event.target.value.trim().toLowerCase();
+        renderBatchOptions(mode);
+      }, 250);
+    });
+}
+async function loadInitialData() {
+  try {
+    const res = await apiGet("/api/bootstrap", {}, { public: true });
+    if (!res || !res.ok) {
+      throw new Error(
+        res && res.message
+          ? res.message
+          : "Không thể tải dữ liệu khởi tạo.",
+      );
+    }
+    const today = res.date || "";
+    populateFilterSelect("addDate", [today], false);
+    populateFilterSelect("addGame", res.games || ["GTA"], false);
+    populateFilterSelect("editDate", [today], false);
+    populateFilterSelect("editGame", res.games || ["GTA"], false);
+    if (today) {
+      document.getElementById("addDate").value = today;
+      document.getElementById("editDate").value = today;
+    }
+    document.getElementById("addSelectedDate").value =
+      document.getElementById("addDate").value || "";
+    document.getElementById("addSelectedGame").value =
+      document.getElementById("addGame").value || "GTA";
+    document.getElementById("editSelectedDate").value =
+      document.getElementById("editDate").value || "";
+    document.getElementById("editSelectedGame").value =
+      document.getElementById("editGame").value || "GTA";
+    populateTeams(res.teams || []);
+    authState.clientId = res.googleClientId || "";
+    authState.scopes = res.googleScopes || [];
+    initGoogleAuth();
+    updateAuthUi();
+    updateMetaStatus("add", "Chọn Team để tải danh sách Batch.");
+    updateMetaStatus("edit", "Chọn Team để tải danh sách Batch.");
+    const adminBox = document.getElementById("adminBox");
+    if (adminBox) adminBox.classList.add("d-none");
+  } catch (err) {
+    const message =
+      "Lỗi khi tải danh sách tùy chọn: " + normalizeError(err);
+    showModeStatus("add", false, message);
+    showModeStatus("edit", false, message);
+  }
+}
+function populateTeams(teams) {
+  ["add", "edit", "cache"].forEach((prefix) => {
+    const select = document.getElementById(prefix + "Team");
+    if (!select) return;
+    select.innerHTML = "";
+    const placeholder = prefix === "cache" ? "Chọn Team..." : "-";
+    select.add(new Option(placeholder, ""));
+    teams.forEach((team) => select.add(new Option(team, team)));
+  });
+}
+function onTeamChange(mode) {
+  const modeState = state[mode];
+  modeState.team = document.getElementById(mode + "Team").value;
+  modeState.batch = "";
+  modeState.records = [];
+  modeState.recordsLoaded = false;
+  modeState.rows = [];
+  document.getElementById(mode + "SelectedTeam").value = modeState.team;
+  document.getElementById(mode + "SelectedBatch").value = "";
+  if (document.getElementById(mode + "SelectedDate")) {
+    document.getElementById(mode + "SelectedDate").value = "";
+  }
+  if (document.getElementById(mode + "SelectedGame")) {
+    document.getElementById(mode + "SelectedGame").value = "";
+  }
+  document.getElementById(mode + "UploadManifest").value = "";
+  document.getElementById(mode + "Rows").innerHTML = "";
+  toggleEmptyState(mode);
+  resetFilters(mode);
+  if (!modeState.team) {
+    modeState.batchOptions = [];
+    renderBatchOptions(mode);
+    updateMetaStatus(mode, "Chọn Team để tải danh sách Batch.");
+    return;
+  }
+  updateMetaStatus(mode, "Đang tải Batch theo Team...");
+  const requestStartedAt = Date.now();
+  apiGet("/api/batches", { team: modeState.team })
+    .then((res) => {
+      if (!res || !res.ok) {
+        modeState.batchOptions = [];
+        renderBatchOptions(mode);
+        updateMetaStatus(
+          mode,
+          res && res.message
+            ? res.message
+            : "Không thể tải danh sách Batch.",
+          true,
+        );
+        return;
+      }
+      modeState.batchOptions = res.batches || [];
+      renderBatchOptions(mode);
+      updateMetaStatus(mode, "Chọn Batch để tải danh sách Session.");
+    })
+    .catch((err) => {
+      modeState.batchOptions = [];
+      renderBatchOptions(mode);
+      updateMetaStatus(
+        mode,
+        "Lỗi khi tải danh sách Batch: " + normalizeError(err),
+        true,
+      );
+    });
+}
+function renderBatchOptions(mode) {
+  const modeState = state[mode];
+  const select = document.getElementById(mode + "Batch");
+  const query = modeState.searchQuery || "";
+  const filtered = modeState.batchOptions.filter((batch) =>
+    batch.toLowerCase().includes(query),
+  );
+  const previous = modeState.batch;
+  select.innerHTML = "";
+  select.add(new Option("Chọn Batch...", ""));
+  filtered.forEach((batch) => select.add(new Option(batch, batch)));
+  if (filtered.includes(previous)) {
+    select.value = previous;
+  } else {
+    modeState.batch = "";
+    select.value = "";
+  }
+  if (modeState.batch) {
+    updateMetaStatus(mode);
+  } else {
+    modeState.records = [];
+    document.getElementById(mode + "SelectedBatch").value = "";
+    resetFilters(mode);
+    refreshSessionOptions(mode);
+    if (!modeState.batchOptions.length) {
+      updateMetaStatus(
+        mode,
+        "Không có Batch nào cho Team hiện tại.",
+        true,
+      );
+    } else if (query && !filtered.length) {
+      updateMetaStatus(
+        mode,
+        "Không có Batch phù hợp với từ khóa hiện tại.",
+        true,
+      );
+    } else {
+      updateMetaStatus(mode, "Chọn Batch để tải danh sách Session.");
+    }
+  }
+}
+function onBatchChange(mode) {
+  const modeState = state[mode];
+  const batch = document.getElementById(mode + "Batch").value;
+  modeState.batch = batch;
+  modeState.recordsLoaded = false;
+  document.getElementById(mode + "SelectedBatch").value = batch;
+  modeState.records = [];
+  clearRows(mode);
+  if (!batch) {
+    resetFilters(mode);
+    refreshSessionOptions(mode);
+    updateMetaStatus(mode, "Chưa chọn Batch.", true);
+    return;
+  }
+  updateMetaStatus(mode, "Đang tải dữ liệu...");
+  showModeStatus(mode, true, "Đang tải dữ liệu...");
+  const requestStartedAt = Date.now();
+  apiGet("/api/sessions", {
+    team: modeState.team,
+    batch,
+    mode,
+  })
+    .then((res) => {
+      if (!res || !res.ok) {
+        modeState.records = [];
+        modeState.recordsLoaded = false;
+        resetFilters(mode);
+        refreshSessionOptions(mode);
+        updateMetaStatus(
+          mode,
+          res && res.message
+            ? res.message
+            : "Không thể tải dữ liệu Batch.",
+          true,
+        );
+        return;
+      }
+      modeState.records = res.records || [];
+      modeState.recordsLoaded = true;
+      refreshSessionOptions(mode);
+      updateMetaStatus(mode);
+    })
+    .catch((err) => {
+      modeState.records = [];
+      modeState.recordsLoaded = false;
+      refreshSessionOptions(mode);
+      updateMetaStatus(
+        mode,
+        "Lỗi khi tải dữ liệu Batch: " + normalizeError(err),
+        true,
+      );
+    });
+}
+function resetFilters(mode) {
+  const dateField = document.getElementById(mode + "Date");
+  const gameField = document.getElementById(mode + "Game");
+  const selectedDateField = document.getElementById(
+    mode + "SelectedDate",
+  );
+  const selectedGameField = document.getElementById(
+    mode + "SelectedGame",
+  );
+  if (selectedDateField) {
+    selectedDateField.value = dateField ? dateField.value : "";
+  }
+  if (selectedGameField) {
+    selectedGameField.value = gameField ? gameField.value : "GTA";
+  }
+}
+function populateFilterSelect(id, values, includeAll) {
+  const select = document.getElementById(id);
+  if (!select) return;
+  select.innerHTML = "";
+  if (includeAll !== false) {
+    select.add(new Option("Tất cả", "All"));
+  }
+  values.forEach((value) => select.add(new Option(value, value)));
+  if (select.options.length > 0) {
+    select.value = select.options[0].value;
+  }
+}
+function getFilteredRecords(mode) {
+  return state[mode].records.slice();
+}
+function getAvailableSessions(mode, currentKey) {
+  const selectedElsewhere = new Set(
+    state[mode].rows
+      .filter((row) => row.key !== currentKey)
+      .map((row) => {
+        const select = document.getElementById(row.selectId);
+        return select ? select.value : "";
+      })
+      .filter(Boolean),
+  );
+  return getFilteredRecords(mode)
+    .map((record) => record.sessionId)
+    .filter((sessionId) => !selectedElsewhere.has(sessionId));
+}
+function isDuplicateSessionSelected(mode, sessionId, currentKey) {
+  return state[mode].rows.some((row) => {
+    if (row.key === currentKey) return false;
+    const select = document.getElementById(row.selectId);
+    return select && select.value === sessionId;
+  });
+}
+function addUploadRow(mode, preferredSessionId) {
+  if (!state[mode].batch) {
+    showModeStatus(
+      mode,
+      false,
+      "Chọn Team và Batch trước khi thêm SessionID.",
+    );
+    return;
+  }
+  const available = getAvailableSessions(mode, null);
+  if (!available.length) {
+    showModeStatus(
+      mode,
+      false,
+      "Không còn SessionID phù hợp với filter hiện tại.",
+    );
+    return;
+  }
+  const modeState = state[mode];
+  modeState.rowCounter += 1;
+  const key = mode + "_" + modeState.rowCounter;
+  const row = {
+    key,
+    csvField: "csv_" + key,
+    mp4Field: "mp4_" + key,
+    searchId: "session_search_" + key,
+    selectId: "session_" + key,
+    detailsId: "details_" + key,
+    fileListId: "file_list_" + key,
+    dropZoneId: "drop_zone_" + key,
+    folderPickerId: "folder_picker_" + key,
+    filesPickerId: "files_picker_" + key,
+    removeBtnId: "remove_btn_" + key,
+    chooseFilesBtnId: "choose_files_btn_" + key,
+    chooseFolderBtnId: "choose_folder_btn_" + key,
+    toggleBtnId: "toggle_btn_" + key,
+    toggleIconId: "toggle_icon_" + key,
+    bodyWrapId: "body_wrap_" + key,
+    summaryMainId: "summary_main_" + key,
+    summaryStatusId: "summary_status_" + key,
+    summaryIconId: "summary_icon_" + key,
+    summaryTextId: "summary_text_" + key,
+    detailsWrapId: "details_wrap_" + key,
+    statusId: "status_" + key,
+    progressId: "progress_" + key,
+    progressBarId: "progress_bar_" + key,
+    searchQuery: "",
+    debounceTimer: null,
+    uploadMeta: null,
+    isUploading: false,
+    progressTimer: null,
+    summaryKind: "idle",
+    summaryText: "Chưa tải lên",
+  };
+  modeState.rows.push(row);
+  const container = document.getElementById(mode + "Rows");
+  const wrapper = document.createElement("div");
+  wrapper.className = "session-card";
+  wrapper.id = "card_" + key;
+  wrapper.innerHTML = `
+    <div class="session-header">
+      <div class="session-header-main">
+        <button
+          type="button"
+          id="${row.toggleBtnId}"
+          class="session-toggle-icon"
+          onclick="toggleRowDetails('${mode}', '${key}')"
+          aria-label="Ẩn hiện chi tiết"
+        >
+          <span id="${row.toggleIconId}">▸</span>
+        </button>
+        <div class="session-summary-line">
+          <div id="${row.summaryMainId}" class="session-summary-main">Chưa chọn SessionID</div>
+          <div id="${row.summaryStatusId}" class="session-summary-status is-idle">
+            <span id="${row.summaryIconId}" class="session-summary-icon">•</span>
+            <span id="${row.summaryTextId}">Chưa tải lên</span>
+          </div>
+        </div>
+      </div>
+      <button
+        type="button"
+        id="${row.removeBtnId}"
+        class="btn btn-sm btn-outline-danger"
+        onclick="removeUploadRow('${mode}', '${key}')"
+      >
+        Xóa Session
+      </button>
+    </div>
+    <div id="${row.bodyWrapId}" class="session-body d-none">
+      <div class="row align-items-start">
+        <div class="col-md-4 mb-3">
+          <label class="form-label fw-bold">Tìm SessionID</label>
+          <input
+            type="text"
+            id="${row.searchId}"
+            class="form-control mb-2"
+            placeholder="Nhập để lọc SessionID..."
+          />
+          <label class="form-label fw-bold">SessionID</label>
+          <select id="${row.selectId}" class="form-select"></select>
+        </div>
+        <div class="col-md-8 mb-3">
+          <label class="form-label fw-bold">Khu vực upload</label>
+          <div id="${row.dropZoneId}" class="drop-zone" role="button" tabindex="0">
+            <div class="fw-bold text-primary">Thả 1 folder hoặc chọn lần lượt CSV rồi MP4</div>
+            <div class="tiny-note mt-2">
+              Folder mode: chỉ cần đúng 1 CSV và 1 MP4 bên trong folder.
+            </div>
+            <div class="tiny-note">
+              File mode: click vào đây để chọn lần lượt 1 CSV rồi 1 MP4.
+            </div>
+          </div>
+          <div class="d-flex gap-2 mt-2">
+            <button type="button" id="${row.chooseFilesBtnId}" class="btn btn-sm btn-outline-primary">Chọn CSV rồi MP4</button>
+            <button type="button" id="${row.chooseFolderBtnId}" class="btn btn-sm btn-outline-secondary">Chọn folder</button>
+          </div>
+          <input
+            type="file"
+            name="${row.csvField}"
+            id="${row.csvField}"
+            class="d-none"
+            accept=".csv"
+          />
+          <input
+            type="file"
+            name="${row.mp4Field}"
+            id="${row.mp4Field}"
+            class="d-none"
+            accept=".mp4"
+          />
+          <input
+            type="file"
+            id="${row.folderPickerId}"
+            class="d-none"
+            webkitdirectory
+            directory
+            multiple
+          />
+          <input
+            type="file"
+            id="${row.filesPickerId}"
+            class="d-none"
+            multiple
+            accept=".csv,.mp4"
+          />
+          <div id="${row.fileListId}" class="tiny-note mt-2"></div>
+        </div>
+      </div>
+      <div id="${row.detailsWrapId}" class="session-details-wrap">
+        <div id="${row.progressId}" class="progress d-none mb-3">
+          <div
+            id="${row.progressBarId}"
+            class="progress-bar progress-bar-striped progress-bar-animated"
+            role="progressbar"
+            style="width: 0%"
+          >
+            0%
+          </div>
+        </div>
+        <div id="${row.statusId}" class="alert d-none status-box mb-3"></div>
+        <div id="${row.detailsId}" class="tiny-note"></div>
+      </div>
+    </div>
+  `;
+  container.appendChild(wrapper);
+  document
+    .getElementById(row.searchId)
+    .addEventListener("input", (event) => {
+      clearTimeout(row.debounceTimer);
+      row.debounceTimer = setTimeout(() => {
+        const normalized = normalizeSessionSearch(event.target.value);
+        event.target.value = normalized;
+        row.searchQuery = normalized;
+        refreshSessionOptions(mode);
+      }, 250);
+    });
+  document.getElementById(row.selectId).addEventListener("change", () => {
+    const sessionId = document.getElementById(row.selectId).value;
+    if (sessionId && isDuplicateSessionSelected(mode, sessionId, key)) {
+      showRowStatus(
+        mode,
+        key,
+        false,
+        `SessionID ${sessionId} đã được chọn ở row khác.`,
+      );
+      refreshSessionOptions(mode);
+      return;
+    }
+    refreshSessionOptions(mode);
+    if (mode === "edit") loadRowSessionDetails(mode, key);
+    else renderAddRowHint(mode, key);
+  });
+  document
+    .getElementById(row.chooseFilesBtnId)
+    .addEventListener("click", (event) => {
+      event.stopPropagation();
+      beginSequentialFilePick(row);
+    });
+  document
+    .getElementById(row.chooseFolderBtnId)
+    .addEventListener("click", (event) => {
+      event.stopPropagation();
+      document.getElementById(row.folderPickerId).click();
+    });
+  document
+    .getElementById(row.folderPickerId)
+    .addEventListener("change", (event) => {
+      stageRowFiles(
+        mode,
+        key,
+        Array.from(event.target.files || []),
+        "folder",
+      );
+      event.target.value = "";
+    });
+  document
+    .getElementById(row.csvField)
+    .addEventListener("change", (event) => {
+      const file = (event.target.files || [])[0];
+      if (!file) return;
+      if (getFileExtension(file.name) !== "csv") {
+        showRowStatus(mode, key, false, "File đầu tiên phải là CSV.");
+        event.target.value = "";
+        return;
+      }
+      renderSequentialFileSelection(row);
+      document.getElementById(row.mp4Field).click();
+    });
+  document.getElementById(row.mp4Field).addEventListener("change", () => {
+    const csvFile = (document.getElementById(row.csvField).files ||
+      [])[0];
+    const mp4File = (document.getElementById(row.mp4Field).files ||
+      [])[0];
+    if (!csvFile || !mp4File) {
+      renderSequentialFileSelection(row);
+      return;
+    }
+    if (getFileExtension(mp4File.name) !== "mp4") {
+      showRowStatus(mode, key, false, "File thứ hai phải là MP4.");
+      document.getElementById(row.mp4Field).value = "";
+      renderSequentialFileSelection(row);
+      return;
+    }
+    stageRowFiles(mode, key, [csvFile, mp4File], "files");
+  });
+  document
+    .getElementById(row.filesPickerId)
+    .addEventListener("change", (event) => {
+      stageRowFiles(
+        mode,
+        key,
+        Array.from(event.target.files || []),
+        "files",
+      );
+      event.target.value = "";
+    });
+  bindDropZone(mode, key);
+  refreshSessionOptions(mode);
+  document.getElementById(row.selectId).value =
+    preferredSessionId && available.includes(preferredSessionId)
+      ? preferredSessionId
+      : available[0];
+  updateRowSummary(mode, key);
+  if (mode === "edit") loadRowSessionDetails(mode, key);
+  else renderAddRowHint(mode, key);
+  toggleEmptyState(mode);
+  return row;
+}
+function clearRows(mode) {
+  state[mode].rows = [];
+  document.getElementById(mode + "Rows").innerHTML = "";
+  toggleEmptyState(mode);
+}
+function removeUploadRow(mode, key) {
+  const row = state[mode].rows.find((item) => item.key === key);
+  if (!row) return;
+  if (!confirm("Bạn có chắc muốn xóa session này không?")) {
+    return;
+  }
+  if (!row.uploadMeta) {
+    deleteRowCard(mode, key);
+    return;
+  }
+  const restoreMode = mode === "edit" ? "old" : "clear";
+  showRowStatus(mode, key, true, "Đang xóa thư mục vừa upload...");
+  apiPostJson("/api/delete-uploaded-session", {
+    mode: mode,
+    batch: state[mode].batch,
+    team: state[mode].team,
+    sessionId: row.uploadMeta.sessionId,
+    rowNumber: row.uploadMeta.rowNumber,
+    oldDriverLink: row.uploadMeta.oldDriverLink || "",
+    newDriverLink: row.uploadMeta.newDriverLink,
+    restoreMode,
+  })
+    .then((res) => {
+      showRowStatus(
+        mode,
+        key,
+        !!(res && res.ok),
+        res && res.message ? res.message : "Đã xóa thư mục upload.",
+      );
+      if (res && res.ok) {
+        deleteRowCard(mode, key);
+      }
+    })
+    .catch((err) => {
+      showRowStatus(
+        mode,
+        key,
+        false,
+        "Lỗi khi xóa thư mục upload: " + normalizeError(err),
+      );
+    });
+}
+function deleteRowCard(mode, key) {
+  const rowIndex = state[mode].rows.findIndex((item) => item.key === key);
+  if (rowIndex === -1) return;
+  state[mode].rows.splice(rowIndex, 1);
+  const card = document.getElementById("card_" + key);
+  if (card) card.remove();
+  refreshSessionOptions(mode);
+  toggleEmptyState(mode);
+}
+function toggleRowDetails(mode, key) {
+  const row = state[mode].rows.find((item) => item.key === key);
+  if (!row) return;
+  const wrap = document.getElementById(row.bodyWrapId);
+  const icon = document.getElementById(row.toggleIconId);
+  if (!wrap || !icon) return;
+  const hidden = wrap.classList.toggle("d-none");
+  icon.innerText = hidden ? "▸" : "▾";
+}
+function clearRowFiles(mode, key) {
+  const row = state[mode].rows.find((item) => item.key === key);
+  if (!row) return;
+  const csvInput = document.getElementById(row.csvField);
+  const mp4Input = document.getElementById(row.mp4Field);
+  if (csvInput) csvInput.value = "";
+  if (mp4Input) mp4Input.value = "";
+  resetRowUploadState(row);
+  renderFileSelection(row.fileListId, []);
+  showRowStatus(
+    mode,
+    key,
+    true,
+    "Đã xóa file đã chọn. Bạn có thể kéo thả hoặc chọn lại.",
+  );
+}
+function beginSequentialFilePick(row) {
+  if (!row) return;
+  const csvInput = document.getElementById(row.csvField);
+  const mp4Input = document.getElementById(row.mp4Field);
+  if (!csvInput || !mp4Input) return;
+  const csvFile = (csvInput.files || [])[0];
+  const mp4File = (mp4Input.files || [])[0];
+  renderSequentialFileSelection(row);
+  if (!csvFile) {
+    csvInput.click();
+    return;
+  }
+  if (!mp4File) {
+    mp4Input.click();
+    return;
+  }
+  csvInput.value = "";
+  mp4Input.value = "";
+  renderSequentialFileSelection(row);
+  csvInput.click();
+}
+function renderSequentialFileSelection(row) {
+  if (!row) return;
+  const csvFile = (document.getElementById(row.csvField).files || [])[0];
+  const mp4File = (document.getElementById(row.mp4Field).files || [])[0];
+  const files = [csvFile, mp4File].filter(Boolean);
+  if (!files.length) {
+    renderFileSelection(row.fileListId, []);
+    return;
+  }
+  const label =
+    csvFile && mp4File
+      ? "File đã sẵn sàng"
+      : csvFile
+        ? "Đã chọn CSV, chờ MP4"
+        : "Đang chờ CSV";
+  renderFileSelection(row.fileListId, files, label);
+}
+function toggleEmptyState(mode) {
+  document
+    .getElementById(mode + "Empty")
+    .classList.toggle("d-none", state[mode].rows.length > 0);
+}
+function refreshSessionOptions(mode) {
+  state[mode].rows.forEach((row) => {
+    const select = document.getElementById(row.selectId);
+    if (!select) return;
+    const current = select.value;
+    const query = row.searchQuery || "";
+    const available = getAvailableSessions(mode, row.key).filter(
+      (sessionId) => !query || sessionId.includes(query),
+    );
+    select.innerHTML = "";
+    available.forEach((sessionId) =>
+      select.add(new Option(sessionId, sessionId)),
+    );
+    if (available.includes(current)) {
+      select.value = current;
+    } else if (available.length) {
+      select.value = available[0];
+    }
+    const searchInput = document.getElementById(row.searchId);
+    if (searchInput && !searchInput.dataset.touched) {
+      searchInput.value = row.searchQuery || "";
+    }
+    updateRowSummary(mode, row.key);
+    if (mode === "edit") loadRowSessionDetails(mode, row.key);
+    else renderAddRowHint(mode, row.key);
+  });
+}
+function bindDropZone(mode, key) {
+  const row = state[mode].rows.find((item) => item.key === key);
+  if (!row) return;
+  const zone = document.getElementById(row.dropZoneId);
+  if (!zone) return;
+  zone.addEventListener("click", () => {
+    beginSequentialFilePick(row);
+  });
+  zone.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      beginSequentialFilePick(row);
+    }
+  });
+  ["dragenter", "dragover"].forEach((eventName) => {
+    zone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      zone.classList.add("is-over");
+    });
+  });
+  ["dragleave", "dragend", "drop"].forEach((eventName) => {
+    zone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      if (eventName !== "drop") zone.classList.remove("is-over");
+    });
+  });
+  zone.addEventListener("drop", async (event) => {
+    zone.classList.remove("is-over");
+    try {
+      const files = await extractDroppedFiles(event.dataTransfer);
+      const inferredMode = inferDropMode(files);
+      stageRowFiles(mode, key, files, inferredMode);
+    } catch (error) {
+      showRowStatus(
+        mode,
+        key,
+        false,
+        "Lỗi khi kéo thả file: " + normalizeError(error),
+      );
+    }
+  });
+}
+function bindBulkDropZone(mode) {
+  const zone = document.getElementById(mode + "BulkDropZone");
+  if (!zone) return;
+  zone.addEventListener("click", () => {
+    document.getElementById(mode + "BulkFolderPicker").click();
+  });
+  zone.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      document.getElementById(mode + "BulkFolderPicker").click();
+    }
+  });
+  ["dragenter", "dragover"].forEach((eventName) => {
+    zone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      zone.classList.add("is-over");
+    });
+  });
+  ["dragleave", "dragend", "drop"].forEach((eventName) => {
+    zone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      if (eventName !== "drop") zone.classList.remove("is-over");
+    });
+  });
+  zone.addEventListener("drop", async (event) => {
+    zone.classList.remove("is-over");
+    try {
+      const files = await extractDroppedFiles(event.dataTransfer);
+      handleBulkFolderFiles(mode, files);
+    } catch (error) {
+      showBulkStatus(
+        mode,
+        false,
+        "Lỗi khi kéo thả nhiều folder: " + normalizeError(error),
+      );
+    }
+  });
+}
+async function extractDroppedFiles(dataTransfer) {
+  const items = Array.from((dataTransfer && dataTransfer.items) || []);
+  if (!items.length) {
+    return Array.from((dataTransfer && dataTransfer.files) || []);
+  }
+  const entries = items
+    .map((item) =>
+      item.webkitGetAsEntry ? item.webkitGetAsEntry() : null,
+    )
+    .filter(Boolean);
+  if (!entries.length) {
+    return Array.from((dataTransfer && dataTransfer.files) || []);
+  }
+  let files = [];
+  for (const entry of entries) {
+    const entryFiles = await readEntryFiles(entry, "");
+    files = files.concat(entryFiles);
+  }
+  return files;
+}
+async function readEntryFiles(entry, parentPath) {
+  if (entry.isFile) {
+    return new Promise((resolve, reject) => {
+      entry.file((file) => {
+        try {
+          Object.defineProperty(file, "webkitRelativePath", {
+            value: parentPath ? parentPath + "/" + file.name : file.name,
+            configurable: true,
+          });
+        } catch (_) {}
+        resolve([file]);
+      }, reject);
+    });
+  }
+  if (entry.isDirectory) {
+    const reader = entry.createReader();
+    const children = await readAllDirectoryEntries(reader);
+    let result = [];
+    for (const child of children) {
+      const childFiles = await readEntryFiles(
+        child,
+        parentPath ? parentPath + "/" + entry.name : entry.name,
+      );
+      result = result.concat(childFiles);
+    }
+    return result;
+  }
+  return [];
+}
+function readAllDirectoryEntries(reader) {
+  return new Promise((resolve, reject) => {
+    const entries = [];
+    const readBatch = () => {
+      reader.readEntries((batch) => {
+        if (!batch.length) {
+          resolve(entries);
+          return;
+        }
+        entries.push(...batch);
+        readBatch();
+      }, reject);
+    };
+    readBatch();
+  });
+}
+function inferDropMode(files) {
+  if (!files.length) return "files";
+  const topLevelNames = uniqueValues(
+    files.map((file) => getTopLevelFolderName(file)).filter(Boolean),
+  );
+  return topLevelNames.length ? "folder" : "files";
+}
+function handleBulkFolderFiles(mode, files) {
+  if (!state[mode].batch) {
+    showBulkStatus(
+      mode,
+      false,
+      "Chọn Team và Batch trước khi kéo folder.",
+    );
+    return;
+  }
+  const grouped = groupFilesByTopFolder(files);
+  const availableSessionIds = new Set(
+    getFilteredRecords(mode).map((record) => record.sessionId),
+  );
+  const messages = [];
+  const claimedFolderNames = new Set();
+  Object.keys(grouped).forEach((folderName) => {
+    const folderFiles = grouped[folderName];
+    if (!availableSessionIds.has(folderName)) {
+      messages.push(folderName + ": không có trong SessionID available.");
+      return;
+    }
+    if (
+      claimedFolderNames.has(folderName) ||
+      isDuplicateSessionSelected(mode, folderName, "")
+    ) {
+      messages.push(
+        folderName + ": bị trùng SessionID/folder đang có trên màn hình.",
+      );
+      return;
+    }
+    claimedFolderNames.add(folderName);
+    let row = state[mode].rows.find((item) => {
+      const select = document.getElementById(item.selectId);
+      return select && select.value === folderName;
+    });
+    if (!row) {
+      row = addUploadRow(mode, folderName);
+    }
+    if (!row) {
+      messages.push(folderName + ": không thể tạo dòng upload.");
+      return;
+    }
+    const staged = stageRowFiles(mode, row.key, folderFiles, "folder", {
+      statusTarget: "none",
+    });
+    if (!staged.ok) {
+      messages.push(folderName + ": " + staged.message);
+      return;
+    }
+    messages.push(
+      folderName + ": đang tạo folder, upload file và cập nhật Sheet.",
+    );
+  });
+  if (!messages.length) {
+    showBulkStatus(mode, false, "Không tìm thấy folder hợp lệ nào.");
+    return;
+  }
+  showBulkStatus(mode, true, messages.join("\n"));
+}
+function groupFilesByTopFolder(files) {
+  const result = {};
+  (files || []).forEach((file) => {
+    const folderName = getTopLevelFolderName(file);
+    if (!folderName) return;
+    if (!result[folderName]) result[folderName] = [];
+    result[folderName].push(file);
+  });
+  return result;
+}
+function getTopLevelFolderName(file) {
+  const path =
+    file && file.webkitRelativePath
+      ? String(file.webkitRelativePath)
+      : "";
+  if (!path || path.indexOf("/") === -1) return "";
+  return path.split("/")[0];
+}
+function stageRowFiles(mode, key, files, sourceType, options) {
+  const row = state[mode].rows.find((item) => item.key === key);
+  if (!row) return { ok: false, message: "Không tìm thấy dòng upload." };
+  const sessionId =
+    (document.getElementById(row.selectId) || {}).value || "";
+  const validation = validateSelectedFiles(files, sessionId, sourceType);
+  if (!validation.ok) {
+    if (!options || options.statusTarget !== "none") {
+      showRowStatus(mode, key, false, validation.message);
+    }
+    return validation;
+  }
+  const csvInput = document.getElementById(row.csvField);
+  const mp4Input = document.getElementById(row.mp4Field);
+  const fileMap = splitFilesForUpload(validation.files);
+  if (!csvInput || !mp4Input || !fileMap.csv || !fileMap.mp4) {
+    return {
+      ok: false,
+      message: "Không thể gán file CSV/MP4 vào form upload.",
+    };
+  }
+  const csvDt = new DataTransfer();
+  csvDt.items.add(fileMap.csv);
+  csvInput.files = csvDt.files;
+  const mp4Dt = new DataTransfer();
+  mp4Dt.items.add(fileMap.mp4);
+  mp4Input.files = mp4Dt.files;
+  resetRowUploadState(row);
+  renderFileSelection(
+    row.fileListId,
+    [fileMap.csv, fileMap.mp4],
+    validation.label,
+  );
+  if (!options || options.statusTarget !== "none") {
+    showRowStatus(mode, key, true, validation.message);
+  }
+  uploadRow(mode, key);
+  return validation;
+}
+function validateSelectedFiles(files, sessionId, sourceType) {
+  if (!sessionId) {
+    return {
+      ok: false,
+      message: "Chọn SessionID trước khi kéo thả hoặc chọn file.",
+    };
+  }
+  if (!files || !files.length) {
+    return { ok: false, message: "Không có file nào được chọn." };
+  }
+  const normalizedFiles = files.filter(Boolean);
+  const uploadableFiles = normalizedFiles.filter(
+    (file) => !isIgnorableFile(file),
+  );
+  if (sourceType === "folder") {
+    const topLevelNames = uniqueValues(
+      uploadableFiles
+        .map((file) => getTopLevelFolderName(file))
+        .filter(Boolean),
+    );
+    if (topLevelNames.length !== 1) {
+      return {
+        ok: false,
+        message: "Folder upload phải chỉ có đúng 1 folder gốc.",
+      };
+    }
+  } else if (
+    uploadableFiles.some((file) => getTopLevelFolderName(file))
+  ) {
+    return {
+      ok: false,
+      message:
+        "Bạn đang kéo folder. Với SessionID đã chọn, tên folder có thể bất kỳ; hãy dùng nút Chọn folder hoặc chọn trực tiếp 2 file.",
+    };
+  }
+  if (sourceType === "folder") {
+    const csvFiles = uploadableFiles.filter(
+      (file) => getFileExtension(file.name) === "csv",
+    );
+    const mp4Files = uploadableFiles.filter(
+      (file) => getFileExtension(file.name) === "mp4",
+    );
+    if (!csvFiles.length || !mp4Files.length) {
+      return {
+        ok: false,
+        message: "Trong folder phải có ít nhất 1 file CSV và 1 file MP4.",
+      };
+    }
+    if (csvFiles.length > 1) {
+      return {
+        ok: false,
+        message: "Trong folder chỉ được có 1 file CSV hợp lệ để upload.",
+      };
+    }
+    if (mp4Files.length > 1) {
+      return {
+        ok: false,
+        message: "Trong folder chỉ được có 1 file MP4 hợp lệ để upload.",
+      };
+    }
+    return {
+      ok: true,
+      files: [csvFiles[0], mp4Files[0]],
+      label: "Folder đã sẵn sàng",
+      message:
+        "Đã quét folder và tìm thấy đúng 1 file CSV cùng 1 file MP4 để upload.",
+    };
+  }
+  if (uploadableFiles.length !== 2) {
+    return { ok: false, message: "Cần đúng 2 file: 1 CSV và 1 MP4." };
+  }
+  const extensions = uploadableFiles
+    .map((file) => getFileExtension(file.name))
+    .sort();
+  if (extensions.join(",") !== "csv,mp4") {
+    return { ok: false, message: "Chỉ chấp nhận đúng 1 CSV và 1 MP4." };
+  }
+  return {
+    ok: true,
+    files: uploadableFiles,
+    label: "File đã sẵn sàng",
+    message: "2 file hợp lệ và đã sẵn sàng upload.",
+  };
+}
+function renderAddRowHint(mode, key) {
+  const row = state[mode].rows.find((item) => item.key === key);
+  if (!row) return;
+  const details = document.getElementById(row.detailsId);
+  const sessionId = document.getElementById(row.selectId).value;
+  const record = getFilteredRecords(mode).find(
+    (item) => item.sessionId === sessionId,
+  );
+  if (!record) {
+    details.innerHTML = `<div class="text-danger">SessionID không còn phù hợp với filter hiện tại.</div>`;
+    return;
+  }
+  const selectedDate =
+    (document.getElementById(mode + "Date") || {}).value || "-";
+  const selectedGame =
+    (document.getElementById(mode + "Game") || {}).value || "-";
+  details.innerHTML = `
+    <div><strong>${escapeHtml(record.sessionId)}</strong></div>
+    <div>Folder upload: ${escapeHtml(
+      [
+        record.team || state[mode].team,
+        selectedDate,
+        selectedGame,
+        record.sessionId,
+      ]
+        .filter(Boolean)
+        .join(" > "),
+    )}</div>
+  `;
+}
+function loadRowSessionDetails(mode, key) {
+  const row = state[mode].rows.find((item) => item.key === key);
+  if (!row) return;
+  const details = document.getElementById(row.detailsId);
+  const sessionId = document.getElementById(row.selectId).value;
+  if (!sessionId) {
+    details.innerHTML = `<div class="text-danger">Chưa chọn SessionID.</div>`;
+    return;
+  }
+  details.innerHTML = `<div class="text-muted">Đang tải file hiện tại...</div>`;
+  apiGet("/api/session-details", {
+    batch: state[mode].batch,
+    team: state[mode].team,
+    sessionId,
+    mode,
+  })
+    .then((res) => {
+      if (!res || !res.ok) {
+        details.innerHTML = `<div class="text-danger">${escapeHtml(res && res.message ? res.message : "Không thể tải chi tiết SessionID.")}</div>`;
+        return;
+      }
+      const currentFolderUrl =
+        res.folderUrl ||
+        (row.uploadMeta && row.uploadMeta.newDriverLink) ||
+        "";
+      const currentMessage =
+        res.message ||
+        (row.uploadMeta && row.uploadMeta.newDriverLink
+          ? "Đã tải file lên, đang đồng bộ lại chi tiết."
+          : "");
+      const filesHtml = (res.files || []).length
+        ? `<div class="folder-files">${res.files.map((file) => renderFileRow(file, mode, sessionId)).join("")}</div>`
+        : "";
+      details.innerHTML = `
+        <div><strong>${escapeHtml(res.sessionId)}</strong></div>
+        <div>Folder upload: ${escapeHtml(
+          [
+            res.team || state[mode].team,
+            (document.getElementById(mode + "Date") || {}).value || "",
+            (document.getElementById(mode + "Game") || {}).value || "",
+            res.sessionId,
+          ]
+            .filter(Boolean)
+            .join(" > "),
+        )}</div>
+        <div>Folder hiện tại: ${currentFolderUrl ? `<a href="${escapeHtml(currentFolderUrl)}" target="_blank">Mở thư mục</a>` : "Chưa có link"}</div>
+        ${currentMessage ? `<div class="tiny-note mt-2">${escapeHtml(currentMessage)}</div>` : ""}
+        ${filesHtml}
+      `;
+    })
+    .catch((err) => {
+      details.innerHTML = `<div class="text-danger">Lỗi khi tải chi tiết SessionID: ${escapeHtml(normalizeError(err))}</div>`;
+    });
+}
+function renderFileRow(file, mode, sessionId) {
+  const deleteButton = `
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-danger"
+          onclick="deleteFile('${escapeHtml(file.id)}','${mode}','${escapeHtml(sessionId)}')"
+        >
+          Xóa
+        </button>
+      `;
+  return `
+    <div class="folder-file-row">
+      <div>
+        <div><a href="${escapeHtml(file.url)}" target="_blank">${escapeHtml(file.name)}</a></div>
+        <div class="folder-file-meta">
+          Loại: ${escapeHtml((file.type || "không rõ").toUpperCase())}
+          | Người upload: ${escapeHtml(file.uploadedBy || "Không rõ")}
+          | Thời gian upload: ${escapeHtml(file.uploadedAt || "Không rõ")}
+        </div>
+      </div>
+      <div>${deleteButton}</div>
+    </div>
+  `;
+}
+function deleteFile(fileId, mode, sessionId) {
+  if (!confirm("Bạn có chắc muốn xóa file này không?")) return;
+  const targetRow = state[mode].rows.find((row) => {
+    const select = document.getElementById(row.selectId);
+    return select && select.value === sessionId;
+  });
+  showRowStatus(
+    mode,
+    targetRow ? targetRow.key : "",
+    true,
+    "Đang xóa file...",
+  );
+  apiPostJson("/api/delete-file", {
+    fileId,
+    mode,
+    batch: state[mode].batch,
+    team: state[mode].team,
+    sessionId,
+  })
+    .then((res) => {
+      showRowStatus(
+        mode,
+        targetRow ? targetRow.key : "",
+        !!(res && res.ok),
+        res && res.message ? res.message : "Đã xử lý yêu cầu xóa file.",
+      );
+      if (res && res.ok) {
+        state[mode].rows.forEach((row) => {
+          const select = document.getElementById(row.selectId);
+          if (select && select.value === sessionId && mode === "edit") {
+            loadRowSessionDetails(mode, row.key);
+          }
+        });
+      }
+    })
+    .catch((err) => {
+      showRowStatus(
+        mode,
+        targetRow ? targetRow.key : "",
+        false,
+        "Lỗi khi xóa file: " + normalizeError(err),
+      );
+    });
+}
+function uploadRow(mode, key) {
+  const row = state[mode].rows.find((item) => item.key === key);
+  if (!row) return;
+  if (row.isUploading) return;
+  if (!state[mode].team || !state[mode].batch) {
+    showRowStatus(
+      mode,
+      key,
+      false,
+      "Chọn Team và Batch trước khi upload.",
+    );
+    return;
+  }
+  const sessionId = document.getElementById(row.selectId).value;
+  const csvInput = document.getElementById(row.csvField);
+  const mp4Input = document.getElementById(row.mp4Field);
+  if (!sessionId) {
+    showRowStatus(mode, key, false, "Chưa chọn SessionID.");
+    return;
+  }
+  if (isDuplicateSessionSelected(mode, sessionId, key)) {
+    showRowStatus(
+      mode,
+      key,
+      false,
+      `SessionID ${sessionId} đã được chọn ở row khác.`,
+    );
+    return;
+  }
+  if (
+    !csvInput ||
+    !mp4Input ||
+    csvInput.files.length !== 1 ||
+    mp4Input.files.length !== 1
+  ) {
+    showRowStatus(
+      mode,
+      key,
+      false,
+      `SessionID ${sessionId} phải có đủ 1 file CSV và 1 file MP4.`,
+    );
+    return;
+  }
+  const manifest = [
+    {
+      sessionId,
+      csvField: row.csvField,
+      mp4Field: row.mp4Field,
+    },
+  ];
+  document.getElementById(mode + "SelectedTeam").value = state[mode].team;
+  document.getElementById(mode + "SelectedBatch").value =
+    state[mode].batch;
+  const dateField = document.getElementById(mode + "Date");
+  const gameField = document.getElementById(mode + "Game");
+  document.getElementById(mode + "SelectedDate").value = dateField
+    ? dateField.value
+    : "";
+  document.getElementById(mode + "SelectedGame").value = gameField
+    ? gameField.value
+    : "";
+  document.getElementById(mode + "UploadManifest").value =
+    JSON.stringify(manifest);
+  const runUpload = () => {
+    row.isUploading = true;
+    startRowProgress(row);
+    showRowStatus(
+      mode,
+      key,
+      true,
+      "Đang tạo folder, upload file và cập nhật Sheet...",
+    );
+    apiUploadRow(mode, row)
+      .then((res) => {
+        row.isUploading = false;
+        completeRowProgress(row);
+        showRowStatus(
+          mode,
+          key,
+          !!(res && res.ok),
+          res && res.message ? res.message : "Đã xử lý xong yêu cầu.",
+        );
+        if (res && res.ok && res.result) {
+          row.uploadMeta = res.result;
+          loadRowSessionDetails(mode, key);
+        }
+      })
+      .catch((err) => {
+        row.isUploading = false;
+        failRowProgress(row);
+        showRowStatus(
+          mode,
+          key,
+          false,
+          "Lỗi hệ thống: " + normalizeError(err),
+        );
+      });
+  };
+  if (!row.uploadMeta) {
+    runUpload();
+    return;
+  }
+  showRowStatus(
+    mode,
+    key,
+    true,
+    "Đang xóa thư mục upload trước đó để thay thế...",
+  );
+  apiPostJson("/api/delete-uploaded-session", {
+    mode: mode,
+    batch: state[mode].batch,
+    team: state[mode].team,
+    sessionId: row.uploadMeta.sessionId,
+    rowNumber: row.uploadMeta.rowNumber,
+    oldDriverLink: row.uploadMeta.oldDriverLink || "",
+    newDriverLink: row.uploadMeta.newDriverLink,
+    restoreMode: "old",
+  })
+    .then((res) => {
+      if (!res || !res.ok) {
+        showRowStatus(
+          mode,
+          key,
+          false,
+          res && res.message
+            ? res.message
+            : "Không thể thay thế lần upload trước.",
+        );
+        return;
+      }
+      row.uploadMeta = null;
+      runUpload();
+    })
+    .catch((err) => {
+      showRowStatus(
+        mode,
+        key,
+        false,
+        "Lỗi khi thay thế dữ liệu upload: " + normalizeError(err),
+      );
+    });
+}
+function updateMetaStatus(mode, message, isError) {
+  const box = document.getElementById(mode + "MetaStatus");
+  if (message) {
+    box.className =
+      "alert " +
+      (isError ? "alert-danger" : "alert-info") +
+      " status-box mb-0";
+    box.innerText = message;
+    return;
+  }
+  const total = state[mode].recordsLoaded
+    ? String(state[mode].records.length)
+    : state[mode].batch
+      ? "Đang tải..."
+      : "-";
+  const lines = [
+    "Team: " + formatTeamMeta(state[mode].team || "-"),
+    "Batch: " + (state[mode].batch || "-"),
+    "Ngày: " +
+      ((document.getElementById(mode + "Date") || {}).value || "-"),
+    "Game: " +
+      ((document.getElementById(mode + "Game") || {}).value || "-"),
+    "Số kịch bản chưa làm: " + total,
+  ];
+  box.className = "alert alert-info status-box mb-0";
+  box.innerText = lines.join("\n");
+}
+function updateRowSummary(mode, key, kind, message) {
+  const row = state[mode].rows.find((item) => item.key === key);
+  if (!row) return;
+  if (kind) row.summaryKind = kind;
+  if (message !== undefined) row.summaryText = message;
+  const sessionId = ((document.getElementById(row.selectId) || {}).value || "").trim();
+  const main = document.getElementById(row.summaryMainId);
+  const status = document.getElementById(row.summaryStatusId);
+  const icon = document.getElementById(row.summaryIconId);
+  const textNode = document.getElementById(row.summaryTextId);
+  if (main) main.innerText = sessionId || "Chưa chọn SessionID";
+  const kindValue = row.summaryKind || "idle";
+  const label = row.summaryText || "Chưa tải lên";
+  const iconMap = { idle: "•", loading: "…", success: "✓", error: "✕" };
+  if (status) status.className = "session-summary-status is-" + kindValue;
+  if (icon) icon.innerText = iconMap[kindValue] || "•";
+  if (textNode) textNode.innerText = label;
+}
+function showModeStatus(mode, ok, message) {
+  const rows = state[mode].rows || [];
+  if (rows.length) {
+    showRowStatus(mode, rows[0].key, ok, message);
+    return;
+  }
+  const box = document.getElementById(mode + "MetaStatus");
+  box.className =
+    "alert " +
+    (ok ? "alert-success" : "alert-danger") +
+    " status-box mb-0";
+  box.innerText = message;
+  box.classList.remove("d-none");
+}
+function showRowStatus(mode, key, ok, message) {
+  const row = state[mode].rows.find((item) => item.key === key);
+  if (!row) return;
+  const box = document.getElementById(row.statusId);
+  if (!box) return;
+  box.className =
+    "alert " +
+    (ok ? "alert-success" : "alert-danger") +
+    " status-box mb-3";
+  box.innerText = message;
+  box.classList.remove("d-none");
+  const firstLine = String(message || "").split("\n").find(Boolean) || (ok ? "Thành công" : "Thất bại");
+  const normalizedLine = firstLine.toLowerCase();
+  const summaryKind = ok
+    ? normalizedLine.startsWith("đang")
+      ? "loading"
+      : "success"
+    : "error";
+  updateRowSummary(mode, key, summaryKind, firstLine);
+}
+function showBulkStatus(mode, ok, message) {
+  const box = document.getElementById(mode + "BulkStatus");
+  if (!box) return;
+  box.className =
+    "alert " +
+    (ok ? "alert-success" : "alert-danger") +
+    " status-box mt-3 mb-0";
+  box.innerText = message;
+  box.classList.remove("d-none");
+}
+function renderFileSelection(containerId, files, label) {
+  const box = document.getElementById(containerId);
+  if (!files || !files.length) {
+    box.innerHTML = "";
+    return;
+  }
+  const lines = Array.from(files).map((file) => {
+    const path = file.webkitRelativePath || file.name;
+    return escapeHtml(path);
+  });
+  box.innerHTML =
+    (label
+      ? `<div class="fw-bold mb-1">${escapeHtml(label)}</div>`
+      : "") + lines.map((fileName) => fileName).join("<br>");
+}
+function loadCachedPath() {}
+function savePathCache() {
+  const box = document.getElementById("adminStatus");
+  if (!box) return;
+  box.className = "alert alert-danger status-box mt-3 mb-0";
+  box.innerText = "Bản Cloud không dùng cache đường dẫn thủ công.";
+  box.classList.remove("d-none");
+}
+async function apiGet(path, params, options) {
+  const url = new URL(path, window.location.origin);
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      url.searchParams.set(key, value);
+    }
+  });
+  const response = await fetchApiWithGoogleAuth(url.toString(), {
+    credentials: "same-origin",
+  }, options);
+  return parseApiResponse(response);
+}
+async function apiPostJson(path, payload, options) {
+  const response = await fetchApiWithGoogleAuth(
+    path,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      body: JSON.stringify(payload || {}),
+    },
+    {
+      ...(options || {}),
+      contentType: "application/json",
+    },
+  );
+  return parseApiResponse(response);
+}
+async function apiUploadRow(mode, row) {
+  await ensureFreshGoogleAccessToken(2 * 60 * 1000);
+  const payload = {
+    mode,
+    team: state[mode].team || "",
+    batch: state[mode].batch || "",
+    selectedDate:
+      (document.getElementById(mode + "Date") || {}).value || "",
+    selectedGame:
+      (document.getElementById(mode + "Game") || {}).value || "GTA",
+    sessionId: document.getElementById(row.selectId).value || "",
+  };
+  const csvInput = document.getElementById(row.csvField);
+  const mp4Input = document.getElementById(row.mp4Field);
+  const csvFile = csvInput && csvInput.files ? csvInput.files[0] : null;
+  const mp4File = mp4Input && mp4Input.files ? mp4Input.files[0] : null;
+  if (!csvFile || !mp4File) {
+    throw new Error("Thiếu file CSV hoặc MP4 để upload.");
+  }
+  const started = await apiPostJson("/api/upload-session-start", payload);
+  if (!started || !started.ok || !started.uploadSession) {
+    throw new Error(
+      started && started.message
+        ? started.message
+        : "Không thể chuẩn bị upload.",
+    );
+  }
+  const uploadSession = started.uploadSession;
+  const uploadedFiles = [];
+  try {
+    const csvResult = await uploadFileDirectToDrive(
+      csvFile,
+      uploadSession,
+      "csv",
+    );
+    uploadedFiles.push(csvResult);
+    const mp4Result = await uploadFileDirectToDrive(
+      mp4File,
+      uploadSession,
+      "mp4",
+    );
+    uploadedFiles.push(mp4Result);
+    return await apiPostJson("/api/upload-session-complete", {
+      ...uploadSession,
+      uploadedFiles,
+    });
+  } catch (error) {
+    try {
+      await apiPostJson("/api/upload-session-abort", {
+        ...uploadSession,
+        uploadedFiles,
+      });
+    } catch (_) {}
+    throw error;
+  }
+}
+function buildAuthHeaders(options) {
+  const publicCall = options && options.public;
+  if (!publicCall && !authState.accessToken) {
+    throw new Error("Vui lòng đăng nhập Google trước.");
+  }
+  const headers = {};
+  if (!publicCall && authState.accessToken) {
+    headers.Authorization = "Bearer " + authState.accessToken;
+  }
+  const contentType = options && options.contentType;
+  if (contentType) {
+    headers["Content-Type"] = contentType;
+  }
+  return headers;
+}
+async function fetchApiWithGoogleAuth(url, init, options) {
+  const publicCall = options && options.public;
+  const retryOnAuthFailure = !publicCall && options?.retryOnAuthFailure !== false;
+  const initHeaders =
+    (init || {}).headers && typeof (init || {}).headers === "object"
+      ? (init || {}).headers
+      : {};
+  let response = await fetch(url, {
+    ...(init || {}),
+    headers: {
+      ...initHeaders,
+      ...buildAuthHeaders(options),
+    },
+  });
+  if (!retryOnAuthFailure || response.status !== 401) {
+    return response;
+  }
+  await requestGoogleAccessToken({ interactive: false, refreshProfile: false });
+  response = await fetch(url, {
+    ...(init || {}),
+    headers: {
+      ...initHeaders,
+      ...buildAuthHeaders(options),
+    },
+  });
+  return response;
+}
+async function uploadFileDirectToDrive(file, uploadSession, fileType) {
+  await ensureFreshGoogleAccessToken(60 * 1000);
+  const metadata = {
+    name: file.name,
+    parents: [uploadSession.folderId],
+    description: [
+      `session_id: ${uploadSession.sessionId}`,
+      `uploaded_by: ${authState.email || authState.name || ""}`,
+      `file_type: ${fileType}`,
+      `uploaded_at: ${new Date().toISOString()}`,
+    ].join("\n"),
+  };
+  const initResponse = await fetchDriveWithGoogleAuth(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + authState.accessToken,
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Upload-Content-Type": file.type || "application/octet-stream",
+        "X-Upload-Content-Length": String(file.size || 0),
+      },
+      body: JSON.stringify(metadata),
+    },
+  );
+  if (!initResponse.ok) {
+    throw new Error(
+      await extractDriveError(
+        initResponse,
+        "Không thể khởi tạo phiên upload Drive.",
+      ),
+    );
+  }
+  const resumableUrl = initResponse.headers.get("location");
+  if (!resumableUrl) {
+    throw new Error("Drive không trả về URL resumable upload.");
+  }
+  const chunkSize = 8 * 1024 * 1024;
+  const totalSize = Number(file.size || 0);
+  let offset = 0;
+  let uploaded = null;
+  while (offset < totalSize) {
+    const end = Math.min(offset + chunkSize, totalSize);
+    const chunk = file.slice(offset, end);
+    const uploadResponse = await fetch(resumableUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "Content-Length": String(chunk.size),
+        "Content-Range": `bytes ${offset}-${end - 1}/${totalSize}`,
+      },
+      body: chunk,
+    });
+    if (uploadResponse.status === 308) {
+      const rangeHeader = uploadResponse.headers.get("range") || "";
+      const match = /bytes=0-(\d+)/i.exec(rangeHeader);
+      offset = match ? Number(match[1]) + 1 : end;
+      continue;
+    }
+    if (!uploadResponse.ok) {
+      throw new Error(
+        await extractDriveError(
+          uploadResponse,
+          `Upload file ${file.name} thất bại.`,
+        ),
+      );
+    }
+    uploaded = await uploadResponse.json();
+    offset = totalSize;
+  }
+  if (!uploaded) {
+    throw new Error(`Không nhận được kết quả upload cho file ${file.name}.`);
+  }
+  return {
+    id: uploaded.id || "",
+    name: uploaded.name || file.name,
+    webViewLink: uploaded.webViewLink || "",
+    fileType,
+  };
+}
+async function fetchDriveWithGoogleAuth(url, init) {
+  let response = await fetch(url, init);
+  if (response.status !== 401) {
+    return response;
+  }
+  await requestGoogleAccessToken({ interactive: false, refreshProfile: false });
+  const retryHeaders = {
+    ...(((init || {}).headers && typeof (init || {}).headers === "object")
+      ? (init || {}).headers
+      : {}),
+    Authorization: "Bearer " + authState.accessToken,
+  };
+  response = await fetch(url, {
+    ...(init || {}),
+    headers: retryHeaders,
+  });
+  return response;
+}
+async function extractDriveError(response, fallbackMessage) {
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_) {
+    payload = null;
+  }
+  if (payload && payload.error && payload.error.message) {
+    return payload.error.message;
+  }
+  return `${fallbackMessage} HTTP ${response.status}`;
+}
+async function parseApiResponse(response) {
+  let data = null;
+  try {
+    data = await response.json();
+  } catch (_) {
+    data = null;
+  }
+  if (response.ok) {
+    return data || { ok: true };
+  }
+  const message =
+    data && data.message ? data.message : `HTTP ${response.status}`;
+  throw new Error(message);
+}
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+function normalizeError(err) {
+  return err && err.message ? err.message : String(err);
+}
+function uniqueValues(values) {
+  return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
+}
+function getFileExtension(fileName) {
+  const parts = String(fileName || "")
+    .toLowerCase()
+    .split(".");
+  return parts.length > 1 ? parts.pop() : "";
+}
+function splitFilesForUpload(files) {
+  let csv = null;
+  let mp4 = null;
+  (files || []).forEach((file) => {
+    const ext = getFileExtension(file.name);
+    if (ext === "csv" && !csv) csv = file;
+    if (ext === "mp4" && !mp4) mp4 = file;
+  });
+  return { csv, mp4 };
+}
+function isIgnorableFile(file) {
+  const name = String((file && file.name) || "");
+  return (
+    !name ||
+    name === ".DS_Store" ||
+    name === "Thumbs.db" ||
+    name.startsWith("._")
+  );
+}
+function normalizeSessionSearch(value) {
+  return String(value || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, "");
+}
+function formatTeamMeta(team) {
+  const map = {
+    "Team anh Giang": "A Giang",
+    "Team Tuấn Anh": "Tuấn Anh",
+    "Team CTV": "CTV",
+    "Team Offine": "Offine",
+  };
+  return map[team] || team;
+}
+function resetRowUploadState(row) {
+  row.uploadMeta = null;
+  row.isUploading = false;
+  stopRowProgress(row);
+}
+function startRowProgress(row) {
+  stopRowProgress(row);
+  const wrap = document.getElementById(row.progressId);
+  const bar = document.getElementById(row.progressBarId);
+  if (!wrap || !bar) return;
+  wrap.classList.remove("d-none");
+  let value = 0;
+  bar.style.width = "0%";
+  bar.innerText = "0%";
+  row.progressTimer = setInterval(() => {
+    value = Math.min(value + 7, 92);
+    bar.style.width = value + "%";
+    bar.innerText = value + "%";
+  }, 250);
+}
+function completeRowProgress(row) {
+  stopRowProgress(row);
+  const wrap = document.getElementById(row.progressId);
+  const bar = document.getElementById(row.progressBarId);
+  if (!wrap || !bar) return;
+  wrap.classList.remove("d-none");
+  bar.style.width = "100%";
+  bar.innerText = "100%";
+}
+function failRowProgress(row) {
+  stopRowProgress(row);
+  const wrap = document.getElementById(row.progressId);
+  const bar = document.getElementById(row.progressBarId);
+  if (!wrap || !bar) return;
+  wrap.classList.remove("d-none");
+  bar.classList.remove("bg-success");
+  bar.classList.add("bg-danger");
+}
+function stopRowProgress(row) {
+  if (row.progressTimer) {
+    clearInterval(row.progressTimer);
+    row.progressTimer = null;
+  }
+  const bar = document.getElementById(row.progressBarId);
+  if (bar) {
+    bar.classList.remove("bg-danger");
+    bar.classList.add("progress-bar-striped", "progress-bar-animated");
+  }
+}

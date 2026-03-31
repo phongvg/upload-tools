@@ -28,26 +28,12 @@ export function resolveBatchLayout(headers) {
   };
 }
 
-export function getDateOptions() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 28);
-  const end = new Date(now);
-  end.setDate(now.getDate() + 1);
-  const options = [];
-  const current = new Date(start);
-
-  while (current <= end) {
-    options.push(
-      current.toLocaleDateString("en-US", {
-        month: "long",
-        day: "numeric",
-        timeZone: "Asia/Ho_Chi_Minh",
-      }),
-    );
-    current.setDate(current.getDate() + 1);
-  }
-
-  return options;
+export function getTodayDate() {
+  return new Date().toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    timeZone: "Asia/Ho_Chi_Minh",
+  });
 }
 
 export function extractFolderId(value) {

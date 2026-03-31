@@ -1,13 +1,8 @@
 import { config } from "../config.js";
 import { getSheets } from "../google.js";
-import {
-  normalizeHeader,
-  normalizeString,
-  resolveBatchLayout,
-  extractFolderId,
-} from "../utils.js";
+import { normalizeHeader, normalizeString, resolveBatchLayout } from "../utils.js";
 
-const ASSIGNMENT_RANGE = `${config.assignmentSheet}!A2:B102`;
+const ASSIGNMENT_RANGE = `${config.assignmentSheet}!A2:B`;
 
 export async function getBatchMap() {
   const sheets = await getSheets();
@@ -37,7 +32,7 @@ async function getSheetMatrix(batchName) {
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: config.spreadsheetId,
     range: `${batchName}!A:Z`,
-    valueRenderOption: "FORMULA",
+    valueRenderOption: "UNFORMATTED_VALUE",
   });
 
   const values = response.data.values || [];
@@ -81,7 +76,7 @@ export async function getBatchListRecords(batchName, selectedTeam) {
   return records;
 }
 
-export async function getBatchRecords(batchName, selectedTeam) {
+async function getBatchRecords(batchName, selectedTeam) {
   const { values, layout } = await getSheetMatrix(batchName);
   const records = [];
   for (let i = 1; i < values.length; i += 1) {
@@ -112,7 +107,10 @@ export async function updateDriverLink(batchName, rowNumber, folderUrl) {
   });
 }
 
+const ensuredSheets = new Set();
+
 export async function ensureLogSheet(sheetName, headers) {
+  if (ensuredSheets.has(sheetName)) return;
   const sheets = await getSheets();
   const spreadsheet = await sheets.spreadsheets.get({
     spreadsheetId: config.spreadsheetId,
@@ -146,6 +144,7 @@ export async function ensureLogSheet(sheetName, headers) {
       },
     });
   }
+  ensuredSheets.add(sheetName);
 }
 
 export async function appendRow(sheetName, row) {
@@ -172,6 +171,3 @@ export function columnToA1(column) {
   return label;
 }
 
-export function getFolderIdFromDriverLink(driverLink) {
-  return extractFolderId(driverLink);
-}

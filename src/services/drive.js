@@ -36,12 +36,10 @@ export async function getGameFolderForPath(team, date, game, accessToken) {
 }
 
 export async function createUniqueSessionFolder(parentId, sessionId, accessToken) {
-  const existing = await findChildFolderByName(parentId, sessionId, accessToken);
-  const folderName = existing ? `${sessionId}_v${Date.now()}` : sessionId;
   const drive = await getDrive(accessToken);
   const response = await drive.files.create({
     requestBody: {
-      name: folderName,
+      name: sessionId,
       mimeType: "application/vnd.google-apps.folder",
       parents: [parentId],
     },
