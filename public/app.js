@@ -753,17 +753,6 @@ function addUploadRow(mode, preferredSessionId) {
         event.target.value = "";
         return;
       }
-      const sessionId = (document.getElementById(row.selectId) || {}).value || "";
-      const fileNameValidationMessage = getSessionFileNameMismatch(
-        [file],
-        sessionId,
-      );
-      if (fileNameValidationMessage) {
-        showRowStatus(mode, key, false, fileNameValidationMessage);
-        event.target.value = "";
-        renderSequentialFileSelection(row);
-        return;
-      }
       renderSequentialFileSelection(row);
       document.getElementById(row.mp4Field).click();
     });
@@ -1292,16 +1281,6 @@ function validateSelectedFiles(files, sessionId, sourceType) {
         message: "Trong folder chỉ được có 1 file MP4 hợp lệ để upload.",
       };
     }
-    const fileNameValidationMessage = getSessionFileNameMismatch(
-      [csvFiles[0], mp4Files[0]],
-      sessionId,
-    );
-    if (fileNameValidationMessage) {
-      return {
-        ok: false,
-        message: fileNameValidationMessage,
-      };
-    }
     return {
       ok: true,
       files: [csvFiles[0], mp4Files[0]],
@@ -1318,16 +1297,6 @@ function validateSelectedFiles(files, sessionId, sourceType) {
     .sort();
   if (extensions.join(",") !== "csv,mp4") {
     return { ok: false, message: "Chỉ chấp nhận đúng 1 CSV và 1 MP4." };
-  }
-  const fileNameValidationMessage = getSessionFileNameMismatch(
-    uploadableFiles,
-    sessionId,
-  );
-  if (fileNameValidationMessage) {
-    return {
-      ok: false,
-      message: fileNameValidationMessage,
-    };
   }
   return {
     ok: true,
@@ -1539,10 +1508,12 @@ function uploadRow(mode, key) {
     );
     return;
   }
+  const csvFile = csvInput.files[0];
+  const mp4File = mp4Input.files[0];
   const fileValidation = validateSelectedFiles(
-    [csvInput.files[0], mp4Input.files[0]],
+    [csvFile, mp4File],
     sessionId,
-    "files",
+    inferDropMode([csvFile, mp4File]),
   );
   if (!fileValidation.ok) {
     showRowStatus(mode, key, false, fileValidation.message);
@@ -2059,30 +2030,7 @@ function getFileStem(fileName) {
   const dotIndex = normalized.lastIndexOf(".");
   return dotIndex > 0 ? normalized.slice(0, dotIndex).trim() : normalized;
 }
-function fileStemMatchesSessionId(fileName, sessionId) {
-  return (
-    getFileStem(fileName).toUpperCase() ===
-    String(sessionId || "").trim().toUpperCase()
-  );
-}
-function getSessionFileNameMismatch(files, sessionId) {
-  const normalizedSessionId = String(sessionId || "").trim();
-  const invalidNames = (files || [])
-    .filter(Boolean)
-    .map((file) => String((file && file.name) || "").trim())
-    .filter(
-      (fileName) =>
-        fileName &&
-        !fileStemMatchesSessionId(fileName, normalizedSessionId),
-    );
-  if (!invalidNames.length) {
-    return "";
-  }
-  const quotedNames = invalidNames.map((fileName) => `"${fileName}"`).join(", ");
-  return invalidNames.length === 1
-    ? `Tên file ${quotedNames} phải trùng SessionID "${normalizedSessionId}" (chỉ khác phần đuôi .csv/.mp4).`
-    : `Các file ${quotedNames} phải trùng SessionID "${normalizedSessionId}" (chỉ khác phần đuôi .csv/.mp4).`;
-}
+
 function splitFilesForUpload(files) {
   let csv = null;
   let mp4 = null;

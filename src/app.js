@@ -20,7 +20,6 @@ import { getUserProfile, REQUIRED_SCOPES } from "./google.js";
 import { getSharedCache, setSharedCache } from "./services/cache.js";
 import {
   extractFolderId,
-  fileStemMatchesSessionId,
   getTodayDate,
   normalizeString,
 } from "./utils.js";
@@ -158,11 +157,6 @@ app.post("/api/upload-session-start", requireGoogleUser, async (req, res) => {
       res.status(400).json({ ok: false, message: `SessionID "${sessionId}" chưa có link trên Sheet nên không thể chỉnh sửa.` });
       return;
     }
-    const fileNameValidationMessage = getSessionFileNameMismatch([csvFileName, mp4FileName], sessionId);
-    if (fileNameValidationMessage) {
-      res.status(400).json({ ok: false, message: fileNameValidationMessage });
-      return;
-    }
     const targetParent = await getCachedGameFolderForPath(
       team,
       selectedDate,
@@ -230,14 +224,6 @@ app.post("/api/upload-session-complete", requireGoogleUser, async (req, res) => 
     const record = await findBatchRecord(batch, sessionId, team);
     if (!record || !record.rowNumber) {
       res.status(400).json({ ok: false, message: `Không tìm thấy đúng dòng Sheet cho SessionID "${sessionId}".` });
-      return;
-    }
-    const fileNameValidationMessage = getSessionFileNameMismatch(
-      uploadedFiles.map((file) => (file ? file.name : "")),
-      sessionId,
-    );
-    if (fileNameValidationMessage) {
-      res.status(400).json({ ok: false, message: fileNameValidationMessage });
       return;
     }
     await updateDriverLink(batch, record.rowNumber, newDriverLink);
@@ -416,18 +402,7 @@ function getAccessTokenFromRequest(req) {
   if (!authHeader.startsWith("Bearer ")) return "";
   return normalizeString(authHeader.slice(7));
 }
-function getSessionFileNameMismatch(fileNames, sessionId) {
-  const normalizedSessionId = normalizeString(sessionId);
-  const invalidFileName = (Array.isArray(fileNames) ? fileNames : [])
-    .map((fileName) => normalizeString(fileName))
-    .find(
-      (fileName) =>
-        fileName && !fileStemMatchesSessionId(fileName, normalizedSessionId),
-    );
-  return invalidFileName
-    ? `Tên file "${invalidFileName}" phải trùng SessionID "${normalizedSessionId}" (chỉ khác phần đuôi .csv/.mp4).`
-    : "";
-}
+
 async function appendUploadLogEntries({
   stage,
   email,
