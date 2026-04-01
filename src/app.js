@@ -7,35 +7,34 @@ import {
   getBatchListRecords,
   findBatchRecord,
   updateDriverLink,
-  appendRow,
 } from "./services/sheets.js";
+import { sheetsQueue, sheetsQueueEvents } from "./services/queue.js";
 import {
-  getGameFolderForPath,
-  createUniqueSessionFolder,
-  listFolderFiles,
-  trashFolder,
-  trashFile,
-} from "./services/drive.js";
+  buildGcsPath,
+  buildGcsPrefixUrl,
+  generateSignedUploadUrl,
+  generateSignedDownloadUrl,
+  listGcsFiles,
+  deleteGcsFiles,
+  writeGcsLog,
+} from "./services/storage.js";
 import { getUserProfile, REQUIRED_SCOPES } from "./google.js";
 import { getSharedCache, setSharedCache } from "./services/cache.js";
-import {
-  extractFolderId,
-  getTodayDate,
-  normalizeString,
-} from "./utils.js";
+import { getTodayDate, normalizeString } from "./utils.js";
+
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const BATCH_CACHE_TTL_MS = 30 * 60 * 1000;
-const PATH_CACHE_TTL_MS = 30 * 60 * 1000;
 const SESSION_CACHE_TTL_MS = 30 * 1000;
 const USER_PROFILE_CACHE_TTL_MS = 5 * 60 * 1000;
 const batchMapCache = { value: null, expiresAt: 0 };
-const gameFolderCache = new Map();
 const sessionCache = new Map();
 const googleUserCache = new Map();
+
 app.use(express.json({ limit: "20mb" }));
 app.use(express.static(path.join(__dirname, "..", "public")));
+
 app.get("/api/bootstrap", async (_req, res) => {
   res.json({
     ok: true,
@@ -46,18 +45,17 @@ app.get("/api/bootstrap", async (_req, res) => {
     googleScopes: REQUIRED_SCOPES,
   });
 });
+
 app.get("/api/batches", async (req, res) => {
   try {
     const team = normalizeString(req.query.team);
     const map = await getCachedBatchMap();
-    res.json({
-      ok: true,
-      batches: map[team] || [],
-    });
+    res.json({ ok: true, batches: map[team] || [] });
   } catch (error) {
     res.status(500).json({ ok: false, message: `Lỗi khi tải danh sách Batch: ${error.message}` });
   }
 });
+
 app.get("/api/warm-batches", async (_req, res) => {
   try {
     const value = await getBatchMap();
@@ -75,6 +73,7 @@ app.get("/api/warm-batches", async (_req, res) => {
     res.status(500).json({ ok: false, message: `Lỗi khi làm nóng cache Batch: ${error.message}` });
   }
 });
+
 app.get("/api/sessions", async (req, res) => {
   try {
     const team = normalizeString(req.query.team);
@@ -82,14 +81,12 @@ app.get("/api/sessions", async (req, res) => {
     const mode = normalizeString(req.query.mode);
     const records = await getCachedSessionRecords(batch, team);
     const filtered = records.filter((record) => (mode === "edit" ? record.hasDriver : !record.hasDriver));
-    res.json({
-      ok: true,
-      records: filtered,
-    });
+    res.json({ ok: true, records: filtered });
   } catch (error) {
     res.status(500).json({ ok: false, message: `Lỗi khi tải dữ liệu Batch: ${error.message}` });
   }
 });
+
 app.get("/api/me", requireGoogleUser, async (req, res) => {
   res.json({
     ok: true,
@@ -98,6 +95,7 @@ app.get("/api/me", requireGoogleUser, async (req, res) => {
     picture: req.googleUser?.picture || "",
   });
 });
+
 app.get("/api/session-details", requireGoogleUser, async (req, res) => {
   try {
     const team = normalizeString(req.query.team);
@@ -109,31 +107,31 @@ app.get("/api/session-details", requireGoogleUser, async (req, res) => {
       return;
     }
     if (!record.hasDriver) {
-      res.json({
-        ok: true,
-        sessionId: record.sessionId,
-        folderUrl: "",
-        files: [],
-        message: "Chưa có link trên Sheet.",
-      });
+      res.json({ ok: true, sessionId: record.sessionId, folderUrl: "", files: [], message: "Chưa có link trên Sheet." });
       return;
     }
-    const folderId = extractFolderId(record.driverLink);
-    if (!folderId) {
-      throw new Error("Link thư mục hoặc ID trên Sheet không hợp lệ.");
-    }
-    const files = await listFolderFiles(folderId);
+    const { team: gcsTeam, date, game, sessionId: gcsSid } = parseGcsPrefixUrl(record.driverLink);
+    const rawFiles = await listGcsFiles(gcsTeam || team, date, game, gcsSid || sessionId);
+    const files = await Promise.all(
+      rawFiles.map(async (f) => ({
+        name: f.name,
+        gcsPath: f.gcsPath,
+        fileType: f.fileType,
+        downloadUrl: await generateSignedDownloadUrl(f.gcsPath),
+      }))
+    );
     res.json({
       ok: true,
       sessionId: record.sessionId,
-      folderUrl: getDriveFolderUrl(folderId, record.driverLink),
+      folderUrl: record.driverLink,
       files,
-      message: "Đã tải file từ Sheet.",
+      message: "Đã tải file từ GCS.",
     });
   } catch (error) {
     res.status(500).json({ ok: false, message: `Lỗi khi tải chi tiết SessionID: ${error.message}` });
   }
 });
+
 app.post("/api/upload-session-start", requireGoogleUser, async (req, res) => {
   try {
     const mode = normalizeString(req.body.mode);
@@ -157,35 +155,26 @@ app.post("/api/upload-session-start", requireGoogleUser, async (req, res) => {
       res.status(400).json({ ok: false, message: `SessionID "${sessionId}" chưa có link trên Sheet nên không thể chỉnh sửa.` });
       return;
     }
-    const targetParent = await getCachedGameFolderForPath(
+    const oldDriverLink = record.driverLink || "";
+    const csvGcsPath = buildGcsPath(team, selectedDate, selectedGame, sessionId, csvFileName);
+    const mp4GcsPath = buildGcsPath(team, selectedDate, selectedGame, sessionId, mp4FileName);
+    const newDriverLink = buildGcsPrefixUrl(team, selectedDate, selectedGame, sessionId);
+    const [csvUploadUrl, mp4UploadUrl] = await Promise.all([
+      generateSignedUploadUrl(csvGcsPath, "text/csv"),
+      generateSignedUploadUrl(mp4GcsPath, "video/mp4"),
+    ]);
+    await appendUploadLogEntries({
+      stage: "upload_started",
+      email: normalizeString(req.googleUser?.email),
+      mode,
+      batch,
       team,
       selectedDate,
       selectedGame,
-      req.googleAccessToken,
-    );
-    const oldDriverLink = record.driverLink || "";
-    const sessionFolder = await createUniqueSessionFolder(targetParent.id, sessionId, req.googleAccessToken);
-    try {
-      await appendUploadLogEntries({
-        stage: "upload_started",
-        email: normalizeString(req.googleUser?.email),
-        mode,
-        batch,
-        team,
-        selectedDate,
-        selectedGame,
-        sessionId,
-        oldDriverLink,
-        newDriverLink: sessionFolder.webViewLink,
-      });
-    } catch (logError) {
-      try {
-        await trashFolder(sessionFolder.id, req.googleAccessToken);
-      } catch (cleanupError) {
-        console.error("Lỗi dọn folder khi ghi log start thất bại:", cleanupError.message);
-      }
-      throw new Error(`Không thể ghi log bắt đầu upload: ${logError.message}`);
-    }
+      sessionId,
+      oldDriverLink,
+      newDriverLink,
+    });
     res.json({
       ok: true,
       uploadSession: {
@@ -197,14 +186,18 @@ app.post("/api/upload-session-start", requireGoogleUser, async (req, res) => {
         sessionId,
         rowNumber: record.rowNumber,
         oldDriverLink,
-        folderId: sessionFolder.id,
-        newDriverLink: sessionFolder.webViewLink,
+        newDriverLink,
+        csvUploadUrl,
+        mp4UploadUrl,
+        csvGcsPath,
+        mp4GcsPath,
       },
     });
   } catch (error) {
     res.status(500).json({ ok: false, message: `Lỗi khi chuẩn bị upload: ${error.message}` });
   }
 });
+
 app.post("/api/upload-session-complete", requireGoogleUser, async (req, res) => {
   try {
     const mode = normalizeString(req.body.mode);
@@ -216,18 +209,27 @@ app.post("/api/upload-session-complete", requireGoogleUser, async (req, res) => 
     const oldDriverLink = normalizeString(req.body.oldDriverLink);
     const newDriverLink = normalizeString(req.body.newDriverLink);
     const uploadedFiles = Array.isArray(req.body.uploadedFiles) ? req.body.uploadedFiles : [];
+    const videoDuration = Number(req.body.videoDuration) || 0;
     const email = normalizeString(req.googleUser?.email);
     if (!batch || !team || !sessionId || !newDriverLink) {
       res.status(400).json({ ok: false, message: "Thiếu dữ liệu để hoàn tất upload." });
       return;
     }
-    const record = await findBatchRecord(batch, sessionId, team);
-    if (!record || !record.rowNumber) {
-      res.status(400).json({ ok: false, message: `Không tìm thấy đúng dòng Sheet cho SessionID "${sessionId}".` });
+    const rowNumber = Number(req.body.rowNumber) || 0;
+    if (!rowNumber) {
+      res.status(400).json({ ok: false, message: `Thiếu rowNumber để cập nhật Sheet cho SessionID "${sessionId}".` });
       return;
     }
-    await updateDriverLink(batch, record.rowNumber, newDriverLink);
+    const updateJob = await sheetsQueue.add("update-driver-link", {
+      batchName: batch,
+      rowNumber,
+      newDriverLink,
+    });
+    await updateJob.waitUntilFinished(sheetsQueueEvents, 25_000);
     clearSessionCache(batch, team);
+    sheetsQueue
+      .add("append-folder-tree", { selectedDate, selectedGame, sessionId, count: uploadedFiles.length, videoDuration, email })
+      .catch((err) => console.error("Queue enqueue folder-tree error:", err.message));
     await appendUploadLogEntries({
       stage: "upload_and_submit",
       email,
@@ -243,12 +245,7 @@ app.post("/api/upload-session-complete", requireGoogleUser, async (req, res) => 
     });
     res.json({
       ok: true,
-      result: {
-        sessionId,
-        rowNumber: record.rowNumber,
-        oldDriverLink,
-        newDriverLink,
-      },
+      result: { sessionId, rowNumber, oldDriverLink, newDriverLink },
       message: [
         `SessionID: ${sessionId}`,
         "Đã cập nhật ở Sheet.",
@@ -259,9 +256,10 @@ app.post("/api/upload-session-complete", requireGoogleUser, async (req, res) => 
     res.status(500).json({ ok: false, message: `Lỗi khi hoàn tất upload: ${error.message}` });
   }
 });
+
 app.post("/api/upload-session-abort", requireGoogleUser, async (req, res) => {
   try {
-    const folderId = normalizeString(req.body.folderId);
+    const gcsPaths = Array.isArray(req.body.gcsPaths) ? req.body.gcsPaths : [];
     const mode = normalizeString(req.body.mode);
     const batch = normalizeString(req.body.batch);
     const team = normalizeString(req.body.team);
@@ -272,16 +270,14 @@ app.post("/api/upload-session-abort", requireGoogleUser, async (req, res) => {
     const newDriverLink = normalizeString(req.body.newDriverLink);
     const uploadedFiles = Array.isArray(req.body.uploadedFiles) ? req.body.uploadedFiles : [];
     const email = normalizeString(req.googleUser?.email);
-    if (!folderId) {
-      res.status(400).json({ ok: false, message: "Thiếu thư mục upload để dọn dẹp." });
-      return;
-    }
-    let trashError = null;
-    try {
-      await trashFolder(folderId, req.googleAccessToken);
-    } catch (error) {
-      trashError = error;
-      console.error("Lỗi xóa folder khi abort:", error.message);
+    let deleteError = null;
+    if (gcsPaths.length > 0) {
+      try {
+        await deleteGcsFiles(gcsPaths);
+      } catch (error) {
+        deleteError = error;
+        console.error("Lỗi xóa GCS files khi abort:", error.message);
+      }
     }
     await appendUploadLogEntries({
       stage: "upload_aborted",
@@ -296,27 +292,28 @@ app.post("/api/upload-session-abort", requireGoogleUser, async (req, res) => {
       newDriverLink,
       files: uploadedFiles,
     });
-    if (trashError) {
-      res.status(500).json({ ok: false, message: `Lỗi khi dọn upload lỗi: ${trashError.message}` });
+    if (deleteError) {
+      res.status(500).json({ ok: false, message: `Lỗi khi dọn upload lỗi: ${deleteError.message}` });
       return;
     }
-    res.json({ ok: true, message: "Đã dọn thư mục upload lỗi." });
+    res.json({ ok: true, message: "Đã dọn file upload lỗi." });
   } catch (error) {
     res.status(500).json({ ok: false, message: `Lỗi khi dọn upload lỗi: ${error.message}` });
   }
 });
+
 app.post("/api/delete-file", requireGoogleUser, async (req, res) => {
   try {
-    const fileId = normalizeString(req.body.fileId);
+    const gcsPath = normalizeString(req.body.gcsPath);
     const mode = normalizeString(req.body.mode);
     const batch = normalizeString(req.body.batch);
     const team = normalizeString(req.body.team);
     const sessionId = normalizeString(req.body.sessionId);
-    if (!fileId) {
-      res.status(400).json({ ok: false, message: "Thiếu fileId để xóa." });
+    if (!gcsPath) {
+      res.status(400).json({ ok: false, message: "Thiếu gcsPath để xóa." });
       return;
     }
-    await trashFile(fileId, req.googleAccessToken);
+    await deleteGcsFiles([gcsPath]);
     await appendDeleteLogEntry({
       action: "delete_file",
       deletedBy: normalizeString(req.googleUser?.email),
@@ -324,13 +321,14 @@ app.post("/api/delete-file", requireGoogleUser, async (req, res) => {
       batch,
       team,
       sessionId,
-      targetId: fileId,
+      targetId: gcsPath,
     });
     res.json({ ok: true, message: "Đã xóa file thành công." });
   } catch (error) {
     res.status(500).json({ ok: false, message: `Lỗi khi xóa file: ${error.message}` });
   }
 });
+
 app.post("/api/delete-uploaded-session", requireGoogleUser, async (req, res) => {
   try {
     const mode = normalizeString(req.body.mode);
@@ -350,13 +348,17 @@ app.post("/api/delete-uploaded-session", requireGoogleUser, async (req, res) => 
       res.status(400).json({ ok: false, message: `Không tìm thấy đúng dòng Sheet cho SessionID "${sessionId}" để xóa.` });
       return;
     }
-    const folderId = extractFolderId(newDriverLink);
-    if (!folderId) {
-      res.status(400).json({ ok: false, message: "Link thư mục upload không hợp lệ." });
-      return;
+    const { team: gcsTeam, date, game, sessionId: gcsSid } = parseGcsPrefixUrl(newDriverLink);
+    const gcsFiles = await listGcsFiles(gcsTeam || team, date, game, gcsSid || sessionId);
+    if (gcsFiles.length > 0) {
+      await deleteGcsFiles(gcsFiles.map((f) => f.gcsPath));
     }
-    await trashFolder(folderId, req.googleAccessToken);
-    await updateDriverLink(batch, record.rowNumber, restoreMode === "old" ? oldDriverLink : "");
+    const deleteUpdateJob = await sheetsQueue.add("update-driver-link", {
+      batchName: batch,
+      rowNumber: record.rowNumber,
+      newDriverLink: restoreMode === "old" ? oldDriverLink : "",
+    });
+    await deleteUpdateJob.waitUntilFinished(sheetsQueueEvents, 25_000);
     clearSessionCache(batch, team);
     await appendDeleteLogEntry({
       action: "delete_uploaded_session",
@@ -365,7 +367,7 @@ app.post("/api/delete-uploaded-session", requireGoogleUser, async (req, res) => 
       batch,
       team,
       sessionId,
-      targetId: folderId,
+      targetId: newDriverLink,
       targetUrl: newDriverLink,
       oldDriverLink,
       newDriverLink,
@@ -379,6 +381,7 @@ app.post("/api/delete-uploaded-session", requireGoogleUser, async (req, res) => 
     res.status(500).json({ ok: false, message: `Lỗi khi xóa thư mục vừa upload: ${error.message}` });
   }
 });
+
 function requireGoogleUser(req, res, next) {
   const accessToken = getAccessTokenFromRequest(req);
   if (!accessToken) {
@@ -396,11 +399,25 @@ function requireGoogleUser(req, res, next) {
     });
 }
 
-
 function getAccessTokenFromRequest(req) {
   const authHeader = String(req.headers.authorization || "");
   if (!authHeader.startsWith("Bearer ")) return "";
   return normalizeString(authHeader.slice(7));
+}
+
+function parseGcsPrefixUrl(url) {
+  try {
+    // https://storage.googleapis.com/BUCKET/team/date/game/sessionId/
+    const parts = normalizeString(url).replace(/\/$/, "").split("/");
+    return {
+      team: parts[4] || "",
+      date: parts[5] || "",
+      game: parts[6] || "",
+      sessionId: parts[7] || "",
+    };
+  } catch {
+    return { team: "", date: "", game: "", sessionId: "" };
+  }
 }
 
 async function appendUploadLogEntries({
@@ -416,44 +433,21 @@ async function appendUploadLogEntries({
   newDriverLink,
   files = [],
 }) {
-  const normalizedEmail = normalizeString(email);
-  const normalizedStage = normalizeString(stage);
-  const normalizedMode = normalizeString(mode);
-  const normalizedBatch = normalizeString(batch);
-  const normalizedTeam = normalizeString(team);
-  const normalizedDate = normalizeString(selectedDate);
-  const normalizedGame = normalizeString(selectedGame);
-  const normalizedSessionId = normalizeString(sessionId);
-  const normalizedOldDriverLink = normalizeString(oldDriverLink);
-  const normalizedNewDriverLink = normalizeString(newDriverLink);
-  const normalizedFiles = Array.isArray(files) ? files.filter(Boolean) : [];
-  const baseRow = [
-    new Date().toISOString(),
-    normalizedEmail,
-    normalizedStage,
-    normalizedMode,
-    normalizedBatch,
-    normalizedTeam,
-    normalizedDate,
-    normalizedGame,
-    normalizedSessionId,
-    normalizedOldDriverLink,
-    normalizedNewDriverLink,
-  ];
-  if (normalizedFiles.length === 0) {
-    await appendRow(config.uploadLogSheet, [...baseRow, "", "", "", ""]);
-  } else {
-    for (const file of normalizedFiles) {
-      await appendRow(config.uploadLogSheet, [
-        ...baseRow,
-        normalizeString(file.id),
-        normalizeString(file.name),
-        normalizeString(file.webViewLink),
-        normalizeString(file.fileType),
-      ]);
-    }
-  }
+  await writeGcsLog({
+    stage: normalizeString(stage),
+    email: normalizeString(email),
+    mode: normalizeString(mode),
+    batch: normalizeString(batch),
+    team: normalizeString(team),
+    selectedDate: normalizeString(selectedDate),
+    selectedGame: normalizeString(selectedGame),
+    sessionId: normalizeString(sessionId),
+    oldDriverLink: normalizeString(oldDriverLink),
+    newDriverLink: normalizeString(newDriverLink),
+    files: Array.isArray(files) ? files.filter(Boolean) : [],
+  });
 }
+
 async function appendDeleteLogEntry({
   action,
   deletedBy,
@@ -467,32 +461,22 @@ async function appendDeleteLogEntry({
   newDriverLink,
   restoreMode,
 }) {
-  await appendRow(config.uploadLogSheet, [
-    new Date().toISOString(),
-    normalizeString(deletedBy),
-    normalizeString(action),
-    normalizeString(mode),
-    normalizeString(batch),
-    normalizeString(team),
-    "",
-    "",
-    normalizeString(sessionId),
-    normalizeString(oldDriverLink),
-    normalizeString(newDriverLink),
-    normalizeString(targetId),
-    "",
-    normalizeString(targetUrl),
-    normalizeString(restoreMode),
-  ]);
+  await writeGcsLog({
+    stage: normalizeString(action),
+    action: normalizeString(action),
+    deletedBy: normalizeString(deletedBy),
+    mode: normalizeString(mode),
+    batch: normalizeString(batch),
+    team: normalizeString(team),
+    sessionId: normalizeString(sessionId),
+    targetId: normalizeString(targetId),
+    targetUrl: normalizeString(targetUrl),
+    oldDriverLink: normalizeString(oldDriverLink),
+    newDriverLink: normalizeString(newDriverLink),
+    restoreMode: normalizeString(restoreMode),
+  });
 }
 
-function getDriveFolderUrl(folderId, originalValue) {
-  const value = normalizeString(originalValue);
-  if (value.startsWith("http://") || value.startsWith("https://")) {
-    return value;
-  }
-  return folderId ? `https://drive.google.com/drive/folders/${folderId}` : "";
-}
 async function getCachedGoogleUser(accessToken) {
   const hit = googleUserCache.get(accessToken);
   if (hit && hit.expiresAt > Date.now()) {
@@ -505,31 +489,7 @@ async function getCachedGoogleUser(accessToken) {
   });
   return profile || {};
 }
-function getGameFolderCacheKey(team, date, game) {
-  return `game_folder_v1:${normalizeString(team)}||${normalizeString(date)}||${normalizeString(game)}`;
-}
-async function getCachedGameFolderForPath(team, date, game, accessToken) {
-  const key = getGameFolderCacheKey(team, date, game);
-  const hit = gameFolderCache.get(key);
-  if (hit && hit.expiresAt > Date.now()) {
-    return hit.value;
-  }
-  const shared = await getSharedCache(key);
-  if (shared && shared.id) {
-    gameFolderCache.set(key, {
-      value: shared,
-      expiresAt: Date.now() + PATH_CACHE_TTL_MS,
-    });
-    return shared;
-  }
-  const value = await getGameFolderForPath(team, date, game, accessToken);
-  gameFolderCache.set(key, {
-    value,
-    expiresAt: Date.now() + PATH_CACHE_TTL_MS,
-  });
-  await setSharedCache(key, value, PATH_CACHE_TTL_MS);
-  return value;
-}
+
 async function getCachedBatchMap() {
   if (batchMapCache.value && batchMapCache.expiresAt > Date.now()) {
     return batchMapCache.value;
@@ -546,6 +506,7 @@ async function getCachedBatchMap() {
   await setSharedCache("batch_map_v1", value, BATCH_CACHE_TTL_MS);
   return value;
 }
+
 async function getCachedSessionRecords(batch, team) {
   const key = `${team}||${batch}`;
   const hit = sessionCache.get(key);
@@ -556,9 +517,11 @@ async function getCachedSessionRecords(batch, team) {
   sessionCache.set(key, { value, expiresAt: Date.now() + SESSION_CACHE_TTL_MS });
   return value;
 }
+
 function clearSessionCache(batch, team) {
   sessionCache.delete(`${team}||${batch}`);
 }
+
 app.listen(config.port, () => {
   console.log(`upload-tools-cloud listening on ${config.port}`);
 });

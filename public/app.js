@@ -1400,7 +1400,7 @@ function renderFileRow(file, mode, sessionId) {
         <button
           type="button"
           class="btn btn-sm btn-outline-danger"
-          onclick="deleteFile('${escapeHtml(file.id)}','${mode}','${escapeHtml(sessionId)}')"
+          onclick="deleteFile('${escapeHtml(file.gcsPath)}','${mode}','${escapeHtml(sessionId)}')"
         >
           Xóa
         </button>
@@ -1408,18 +1408,16 @@ function renderFileRow(file, mode, sessionId) {
   return `
     <div class="folder-file-row">
       <div>
-        <div><a href="${escapeHtml(file.url)}" target="_blank">${escapeHtml(file.name)}</a></div>
+        <div><a href="${escapeHtml(file.downloadUrl || "")}" target="_blank">${escapeHtml(file.name)}</a></div>
         <div class="folder-file-meta">
-          Loại: ${escapeHtml((file.type || "không rõ").toUpperCase())}
-          | Người upload: ${escapeHtml(file.uploadedBy || "Không rõ")}
-          | Thời gian upload: ${escapeHtml(file.uploadedAt || "Không rõ")}
+          Loại: ${escapeHtml((file.fileType || "không rõ").toUpperCase())}
         </div>
       </div>
       <div>${deleteButton}</div>
     </div>
   `;
 }
-function deleteFile(fileId, mode, sessionId) {
+function deleteFile(gcsPath, mode, sessionId) {
   if (!confirm("Bạn có chắc muốn xóa file này không?")) return;
   const targetRow = state[mode].rows.find((row) => {
     const select = document.getElementById(row.selectId);
@@ -1432,7 +1430,7 @@ function deleteFile(fileId, mode, sessionId) {
     "Đang xóa file...",
   );
   apiPostJson("/api/delete-file", {
-    fileId,
+    gcsPath,
     mode,
     batch: state[mode].batch,
     team: state[mode].team,
@@ -1544,7 +1542,7 @@ function uploadRow(mode, key) {
       mode,
       key,
       true,
-      "Đang tạo folder, upload file và cập nhật Sheet...",
+      "Đang tạo signed URL, upload file và cập nhật Sheet...",
     );
     apiUploadRow(mode, row)
       .then((res) => {
@@ -1795,26 +1793,33 @@ async function apiUploadRow(mode, row) {
   const uploadSession = started.uploadSession;
   const uploadedFiles = [];
   try {
-    const csvResult = await uploadFileDirectToDrive(
-      csvFile,
-      uploadSession,
-      "csv",
-    );
-    uploadedFiles.push(csvResult);
-    const mp4Result = await uploadFileDirectToDrive(
-      mp4File,
-      uploadSession,
-      "mp4",
-    );
-    uploadedFiles.push(mp4Result);
+    await uploadFileToGcs(csvFile, uploadSession.csvUploadUrl);
+    uploadedFiles.push({
+      gcsPath: uploadSession.csvGcsPath,
+      name: csvFile.name,
+      fileType: "csv",
+      gcsUrl: "",
+    });
+    const [, videoDuration] = await Promise.all([
+      uploadFileToGcs(mp4File, uploadSession.mp4UploadUrl),
+      getVideoDuration(mp4File),
+    ]);
+    uploadedFiles.push({
+      gcsPath: uploadSession.mp4GcsPath,
+      name: mp4File.name,
+      fileType: "mp4",
+      gcsUrl: "",
+    });
     return await apiPostJson("/api/upload-session-complete", {
       ...uploadSession,
       uploadedFiles,
+      videoDuration,
     });
   } catch (error) {
     try {
       await apiPostJson("/api/upload-session-abort", {
         ...uploadSession,
+        gcsPaths: uploadedFiles.map((f) => f.gcsPath).filter(Boolean),
         uploadedFiles,
       });
     } catch (_) {}
@@ -1863,131 +1868,43 @@ async function fetchApiWithGoogleAuth(url, init, options) {
   });
   return response;
 }
-async function uploadFileDirectToDrive(file, uploadSession, fileType) {
-  await ensureFreshGoogleAccessToken(60 * 1000);
-  const metadata = {
-    name: file.name,
-    parents: [uploadSession.folderId],
-    description: [
-      `session_id: ${uploadSession.sessionId}`,
-      `uploaded_by: ${authState.email || authState.name || ""}`,
-      `file_type: ${fileType}`,
-      `uploaded_at: ${new Date().toISOString()}`,
-    ].join("\n"),
-  };
-  const initResponse = await fetchDriveWithGoogleAuth(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink",
-    {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + authState.accessToken,
-        "Content-Type": "application/json; charset=UTF-8",
-        "X-Upload-Content-Type": file.type || "application/octet-stream",
-        "X-Upload-Content-Length": String(file.size || 0),
-      },
-      body: JSON.stringify(metadata),
-    },
-  );
-  if (!initResponse.ok) {
-    throw new Error(
-      await extractDriveError(
-        initResponse,
-        "Không thể khởi tạo phiên upload Drive.",
-      ),
-    );
-  }
-  const resumableUrl = initResponse.headers.get("location");
-  if (!resumableUrl) {
-    throw new Error("Drive không trả về URL resumable upload.");
-  }
-  const chunkSize = 8 * 1024 * 1024;
-  const totalSize = Number(file.size || 0);
-  let offset = 0;
-  let uploaded = null;
-  while (offset < totalSize) {
-    const end = Math.min(offset + chunkSize, totalSize);
-    const chunk = file.slice(offset, end);
-    let uploadResponse = null;
-    let lastError = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+async function uploadFileToGcs(file, signedUrl) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+    }
+    try {
+      const response = await fetch(signedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (!response.ok) {
+        throw new Error(`Upload thất bại: HTTP ${response.status}`);
       }
-      try {
-        uploadResponse = await fetch(resumableUrl, {
-          method: "PUT",
-          headers: {
-            "Content-Type": file.type || "application/octet-stream",
-            "Content-Length": String(chunk.size),
-            "Content-Range": `bytes ${offset}-${end - 1}/${totalSize}`,
-          },
-          body: chunk,
-        });
-        lastError = null;
-        break;
-      } catch (err) {
-        lastError = err;
-      }
+      return;
+    } catch (err) {
+      lastError = err;
     }
-    if (lastError) {
-      throw new Error(`Upload file ${file.name} thất bại sau 3 lần thử: ${lastError.message}`);
-    }
-    if (uploadResponse.status === 308) {
-      const rangeHeader = uploadResponse.headers.get("range") || "";
-      const match = /bytes=0-(\d+)/i.exec(rangeHeader);
-      offset = match ? Number(match[1]) + 1 : end;
-      continue;
-    }
-    if (!uploadResponse.ok) {
-      throw new Error(
-        await extractDriveError(
-          uploadResponse,
-          `Upload file ${file.name} thất bại.`,
-        ),
-      );
-    }
-    uploaded = await uploadResponse.json();
-    offset = totalSize;
   }
-  if (!uploaded) {
-    throw new Error(`Không nhận được kết quả upload cho file ${file.name}.`);
-  }
-  return {
-    id: uploaded.id || "",
-    name: uploaded.name || file.name,
-    webViewLink: uploaded.webViewLink || "",
-    fileType,
-  };
+  throw new Error(`Upload file ${file.name} thất bại sau 3 lần thử: ${lastError.message}`);
 }
-async function fetchDriveWithGoogleAuth(url, init) {
-  let response = await fetch(url, init);
-  if (response.status !== 401) {
-    return response;
-  }
-  await ensureTokenForRetry();
-  const retryHeaders = {
-    ...(((init || {}).headers && typeof (init || {}).headers === "object")
-      ? (init || {}).headers
-      : {}),
-    Authorization: "Bearer " + authState.accessToken,
-  };
-  response = await fetch(url, {
-    ...(init || {}),
-    headers: retryHeaders,
+function getVideoDuration(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve(isFinite(video.duration) ? Math.round(video.duration) : 0);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(0);
+    };
+    video.src = url;
   });
-  return response;
-}
-async function extractDriveError(response, fallbackMessage) {
-  let payload = null;
-  try {
-    payload = await response.json();
-  } catch (_) {
-    payload = null;
-  }
-  if (payload && payload.error && payload.error.message) {
-    return payload.error.message;
-  }
-  return `${fallbackMessage} HTTP ${response.status}`;
 }
 async function parseApiResponse(response) {
   let data = null;

@@ -2,7 +2,8 @@ export const config = {
   port: Number(process.env.PORT || 8080),
   spreadsheetId: process.env.SS_ID || "1puWk_DoB-BXVjdbvdSDue9U51-optRQaOmypAXRy8_o",
   assignmentSheet: process.env.ASSIGNMENT_SHEET || "Danh sách Phân việc",
-  uploadLogSheet: process.env.UPLOAD_LOG_SHEET || "Upload Logs",
+  folderTreeSheet: process.env.FOLDER_TREE_SHEET || "Folder Tree",
+  gcsBucket: process.env.GCS_BUCKET || "",
   googleClientId: process.env.GOOGLE_CLIENT_ID || "",
   teamOptions: (process.env.TEAM_OPTIONS || "Tuấn Anh,CTV,CTV Offline,anh Giang")
     .split(",")

@@ -3,10 +3,11 @@ import { getSheets } from "../google.js";
 import { normalizeHeader, normalizeString, resolveBatchLayout } from "../utils.js";
 
 const ASSIGNMENT_RANGE = `${config.assignmentSheet}!A2:B`;
-const SHEET_MATRIX_CACHE_TTL_MS = 30 * 1000;
+const SHEET_MATRIX_CACHE_TTL_MS = 2 * 60 * 1000;
 const SHEET_LAYOUT_CACHE_TTL_MS = 30 * 60 * 1000;
 const sheetMatrixCache = new Map();
 const sheetLayoutCache = new Map();
+const inFlightMatrixFetches = new Map();
 
 export async function getBatchMap() {
   const sheets = await getSheets();
@@ -36,20 +37,32 @@ async function getSheetMatrix(batchName) {
   if (cachedMatrix) {
     return cachedMatrix;
   }
-  const sheets = await getSheets();
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: config.spreadsheetId,
-    range: `${batchName}!A:Z`,
-    valueRenderOption: "UNFORMATTED_VALUE",
-  });
-
-  const values = response.data.values || [];
-  const headers = (values[0] || []).map((item) => normalizeHeader(item));
-  const layout = resolveBatchLayout(headers);
-  const matrix = { values, layout };
-  setSheetMatrixCache(batchName, matrix);
-  setSheetLayoutCache(batchName, layout);
-  return matrix;
+  const key = normalizeString(batchName);
+  const inFlight = inFlightMatrixFetches.get(key);
+  if (inFlight) {
+    return inFlight;
+  }
+  const promise = (async () => {
+    try {
+      const sheets = await getSheets();
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: config.spreadsheetId,
+        range: `${batchName}!A:Z`,
+        valueRenderOption: "UNFORMATTED_VALUE",
+      });
+      const values = response.data.values || [];
+      const headers = (values[0] || []).map((item) => normalizeHeader(item));
+      const layout = resolveBatchLayout(headers);
+      const matrix = { values, layout };
+      setSheetMatrixCache(batchName, matrix);
+      setSheetLayoutCache(batchName, layout);
+      return matrix;
+    } finally {
+      inFlightMatrixFetches.delete(key);
+    }
+  })();
+  inFlightMatrixFetches.set(key, promise);
+  return promise;
 }
 
 async function getSheetLayout(batchName) {
