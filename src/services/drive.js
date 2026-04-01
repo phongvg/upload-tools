@@ -1,6 +1,6 @@
 import { Readable } from "node:stream";
 import { config } from "../config.js";
-import { getDrive } from "../google.js";
+import { getDrive, getDriveServiceAccount } from "../google.js";
 import { extractFolderId } from "../utils.js";
 
 export async function getTeamFolder(team) {
@@ -84,8 +84,8 @@ export async function uploadFileToFolder(folderId, file, sessionId, email, fileT
   return response.data;
 }
 
-export async function listFolderFiles(folderId, accessToken) {
-  const drive = await getDrive(accessToken);
+export async function listFolderFiles(folderId) {
+  const drive = await getDriveServiceAccount();
   const response = await drive.files.list({
     q: `'${folderId}' in parents and trashed = false`,
     fields: "files(id,name,webViewLink,description)",

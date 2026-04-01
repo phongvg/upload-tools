@@ -122,7 +122,7 @@ app.get("/api/session-details", requireGoogleUser, async (req, res) => {
     if (!folderId) {
       throw new Error("Link thư mục hoặc ID trên Sheet không hợp lệ.");
     }
-    const files = await listFolderFiles(folderId, req.googleAccessToken);
+    const files = await listFolderFiles(folderId);
     res.json({
       ok: true,
       sessionId: record.sessionId,

@@ -2,7 +2,8 @@ import { google } from "googleapis";
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
-let serviceAccountAuthPromise = null;
+let serviceAccountSheetsAuthPromise = null;
+let serviceAccountDriveAuthPromise = null;
 
 function getAccessTokenAuth(accessToken) {
   if (!accessToken) {
@@ -14,12 +15,21 @@ function getAccessTokenAuth(accessToken) {
 }
 
 async function getServiceAccountAuth() {
-  if (!serviceAccountAuthPromise) {
-    serviceAccountAuthPromise = new google.auth.GoogleAuth({
+  if (!serviceAccountSheetsAuthPromise) {
+    serviceAccountSheetsAuthPromise = new google.auth.GoogleAuth({
       scopes: [SHEETS_SCOPE],
     }).getClient();
   }
-  return serviceAccountAuthPromise;
+  return serviceAccountSheetsAuthPromise;
+}
+
+async function getServiceAccountDriveAuth() {
+  if (!serviceAccountDriveAuthPromise) {
+    serviceAccountDriveAuthPromise = new google.auth.GoogleAuth({
+      scopes: [DRIVE_SCOPE],
+    }).getClient();
+  }
+  return serviceAccountDriveAuthPromise;
 }
 
 export async function getSheets() {
@@ -29,6 +39,11 @@ export async function getSheets() {
 
 export async function getDrive(accessToken) {
   const auth = getAccessTokenAuth(accessToken);
+  return google.drive({ version: "v3", auth });
+}
+
+export async function getDriveServiceAccount() {
+  const auth = await getServiceAccountDriveAuth();
   return google.drive({ version: "v3", auth });
 }
 
