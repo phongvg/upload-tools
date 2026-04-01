@@ -353,7 +353,6 @@ function onTeamChange(mode) {
     return;
   }
   updateMetaStatus(mode, "Đang tải Batch theo Team...");
-  const requestStartedAt = Date.now();
   apiGet("/api/batches", { team: modeState.team })
     .then((res) => {
       if (!res || !res.ok) {
@@ -439,7 +438,6 @@ function onBatchChange(mode) {
   }
   updateMetaStatus(mode, "Đang tải dữ liệu...");
   showModeStatus(mode, true, "Đang tải dữ liệu...");
-  const requestStartedAt = Date.now();
   apiGet("/api/sessions", {
     team: modeState.team,
     batch,
@@ -1779,7 +1777,7 @@ async function apiUploadRow(mode, row) {
   const fileValidation = validateSelectedFiles(
     [csvFile, mp4File],
     payload.sessionId,
-    "files",
+    inferDropMode([csvFile, mp4File]),
   );
   if (!fileValidation.ok) {
     throw new Error(fileValidation.message);
