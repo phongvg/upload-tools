@@ -1938,15 +1938,31 @@ async function uploadFileDirectToDrive(file, uploadSession, fileType) {
   while (offset < totalSize) {
     const end = Math.min(offset + chunkSize, totalSize);
     const chunk = file.slice(offset, end);
-    const uploadResponse = await fetch(resumableUrl, {
-      method: "PUT",
-      headers: {
-        "Content-Type": file.type || "application/octet-stream",
-        "Content-Length": String(chunk.size),
-        "Content-Range": `bytes ${offset}-${end - 1}/${totalSize}`,
-      },
-      body: chunk,
-    });
+    let uploadResponse = null;
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+      }
+      try {
+        uploadResponse = await fetch(resumableUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Type": file.type || "application/octet-stream",
+            "Content-Length": String(chunk.size),
+            "Content-Range": `bytes ${offset}-${end - 1}/${totalSize}`,
+          },
+          body: chunk,
+        });
+        lastError = null;
+        break;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    if (lastError) {
+      throw new Error(`Upload file ${file.name} thất bại sau 3 lần thử: ${lastError.message}`);
+    }
     if (uploadResponse.status === 308) {
       const rangeHeader = uploadResponse.headers.get("range") || "";
       const match = /bytes=0-(\d+)/i.exec(rangeHeader);
