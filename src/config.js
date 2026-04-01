@@ -4,6 +4,16 @@ export const config = {
   assignmentSheet: process.env.ASSIGNMENT_SHEET || "Danh sách Phân việc",
   uploadLogSheet: process.env.UPLOAD_LOG_SHEET || "Upload Logs",
   googleClientId: process.env.GOOGLE_CLIENT_ID || "",
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+  googleRedirectUri: process.env.GOOGLE_REDIRECT_URI || "",
+  authSessionCookieName: process.env.AUTH_SESSION_COOKIE || "upload_sid",
+  authSessionTtlMs: Number(
+    process.env.AUTH_SESSION_TTL_MS || 30 * 24 * 60 * 60 * 1000,
+  ),
+  authCookieSecure:
+    process.env.AUTH_COOKIE_SECURE === "true" ||
+    process.env.NODE_ENV === "production",
+  sessionSecret: process.env.SESSION_SECRET || "",
   teamOptions: (process.env.TEAM_OPTIONS || "Tuấn Anh,CTV,CTV Offline,anh Giang")
     .split(",")
     .map((item) => item.trim())

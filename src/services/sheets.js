@@ -1,5 +1,6 @@
 import { config } from "../config.js";
 import { getSheets } from "../google.js";
+import { withGoogleApiRateLimitRetry } from "./googleRetry.js";
 import { normalizeHeader, normalizeString, resolveBatchLayout } from "../utils.js";
 
 const ASSIGNMENT_RANGE = `${config.assignmentSheet}!A2:B`;
@@ -10,10 +11,12 @@ const sheetLayoutCache = new Map();
 
 export async function getBatchMap() {
   const sheets = await getSheets();
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: config.spreadsheetId,
-    range: ASSIGNMENT_RANGE,
-  });
+  const response = await withGoogleApiRateLimitRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: config.spreadsheetId,
+      range: ASSIGNMENT_RANGE,
+    }),
+  );
 
   const values = response.data.values || [];
   const map = {};
@@ -37,11 +40,13 @@ async function getSheetMatrix(batchName) {
     return cachedMatrix;
   }
   const sheets = await getSheets();
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: config.spreadsheetId,
-    range: `${batchName}!A:Z`,
-    valueRenderOption: "UNFORMATTED_VALUE",
-  });
+  const response = await withGoogleApiRateLimitRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: config.spreadsheetId,
+      range: `${batchName}!A:Z`,
+      valueRenderOption: "UNFORMATTED_VALUE",
+    }),
+  );
 
   const values = response.data.values || [];
   const headers = (values[0] || []).map((item) => normalizeHeader(item));
@@ -62,11 +67,13 @@ async function getSheetLayout(batchName) {
     return cachedLayout;
   }
   const sheets = await getSheets();
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: config.spreadsheetId,
-    range: `${batchName}!1:1`,
-    valueRenderOption: "UNFORMATTED_VALUE",
-  });
+  const response = await withGoogleApiRateLimitRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: config.spreadsheetId,
+      range: `${batchName}!1:1`,
+      valueRenderOption: "UNFORMATTED_VALUE",
+    }),
+  );
   const headers = ((response.data.values || [])[0] || []).map((item) => normalizeHeader(item));
   const layout = resolveBatchLayout(headers);
   setSheetLayoutCache(batchName, layout);
@@ -129,14 +136,16 @@ export async function updateDriverLink(batchName, rowNumber, folderUrl) {
   const sheets = await getSheets();
   const layout = await getSheetLayout(batchName);
   const column = layout.driverLink + 1;
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: config.spreadsheetId,
-    range: `${batchName}!${columnToA1(column)}${rowNumber}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: [[folderUrl || ""]],
-    },
-  });
+  await withGoogleApiRateLimitRetry(() =>
+    sheets.spreadsheets.values.update({
+      spreadsheetId: config.spreadsheetId,
+      range: `${batchName}!${columnToA1(column)}${rowNumber}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[folderUrl || ""]],
+      },
+    }),
+  );
   clearSheetMatrixCache(batchName);
 }
 
@@ -145,52 +154,60 @@ const ensuredSheets = new Set();
 export async function ensureLogSheet(sheetName, headers) {
   if (ensuredSheets.has(sheetName)) return;
   const sheets = await getSheets();
-  const spreadsheet = await sheets.spreadsheets.get({
-    spreadsheetId: config.spreadsheetId,
-    fields: "sheets.properties",
-  });
+  const spreadsheet = await withGoogleApiRateLimitRetry(() =>
+    sheets.spreadsheets.get({
+      spreadsheetId: config.spreadsheetId,
+      fields: "sheets.properties",
+    }),
+  );
   const exists = (spreadsheet.data.sheets || []).some(
     (sheet) => sheet.properties && sheet.properties.title === sheetName,
   );
 
   if (!exists) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: config.spreadsheetId,
-      requestBody: {
-        requests: [
-          {
-            addSheet: {
-              properties: {
-                title: sheetName,
+    await withGoogleApiRateLimitRetry(() =>
+      sheets.spreadsheets.batchUpdate({
+        spreadsheetId: config.spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              addSheet: {
+                properties: {
+                  title: sheetName,
+                },
               },
             },
-          },
-        ],
-      },
-    });
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: config.spreadsheetId,
-      range: `${sheetName}!A1`,
-      valueInputOption: "RAW",
-      requestBody: {
-        values: [headers],
-      },
-    });
+          ],
+        },
+      }),
+    );
+    await withGoogleApiRateLimitRetry(() =>
+      sheets.spreadsheets.values.update({
+        spreadsheetId: config.spreadsheetId,
+        range: `${sheetName}!A1`,
+        valueInputOption: "RAW",
+        requestBody: {
+          values: [headers],
+        },
+      }),
+    );
   }
   ensuredSheets.add(sheetName);
 }
 
 export async function appendRow(sheetName, row) {
   const sheets = await getSheets();
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: config.spreadsheetId,
-    range: `${sheetName}!A1`,
-    valueInputOption: "RAW",
-    insertDataOption: "INSERT_ROWS",
-    requestBody: {
-      values: [row],
-    },
-  });
+  await withGoogleApiRateLimitRetry(() =>
+    sheets.spreadsheets.values.append({
+      spreadsheetId: config.spreadsheetId,
+      range: `${sheetName}!A1`,
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: {
+        values: [row],
+      },
+    }),
+  );
 }
 
 function getSheetMatrixCache(batchName) {

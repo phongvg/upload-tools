@@ -18,6 +18,13 @@ Cloud Run version of the upload tool.
 - `DELETE_LOG_SHEET=Delete_Log`
 - `UPLOAD_LOG_SHEET=Upload Logs`
 - `PORT=8080`
+- `GOOGLE_CLIENT_ID=...`
+- `GOOGLE_CLIENT_SECRET=...`
+- `GOOGLE_REDIRECT_URI=https://your-domain/auth/google/callback`
+- `SESSION_SECRET=replace-with-a-long-random-secret`
+- `AUTH_COOKIE_SECURE=true` for HTTPS deployments
+- `AUTH_SESSION_TTL_MS=2592000000` optional, defaults to 30 days
+- `FIRESTORE_AUTH_COLLECTION=upload_tool_auth_sessions` optional
 
 ## Local run
 
@@ -30,6 +37,8 @@ Cloud Run version of the upload tool.
 
 - This backend assumes the driver link cell contains a plain Drive URL written by this app.
 - Team and batch listing is lightweight and no longer depends on Apps Script runtime.
+- Google login now uses backend OAuth code flow. The server stores the refresh token and mints short-lived Drive access tokens for the frontend when needed, so long batch uploads are no longer blocked by the browser's 1-hour access token lifetime.
+- If `SESSION_SECRET` is missing, auth sessions fall back to in-memory storage and will be lost when the instance restarts.
 - Session delete behavior:
   - delete uploaded folder on Drive
   - clear the sheet link when the user explicitly deletes a session

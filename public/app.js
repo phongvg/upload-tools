@@ -3,14 +3,21 @@ const state = {
   edit: createModeState("edit"),
 };
 const authState = {
-  clientId: "",
-  scopes: [],
+  authStartPath: "/auth/google/start",
   accessToken: "",
   accessTokenExpiresAt: 0,
-  tokenClient: null,
+  isAuthenticated: false,
   email: "",
   name: "",
   pendingTokenRequest: null,
+  requiresReauth: false,
+};
+const uploadScheduler = {
+  maxConcurrent: 3,
+  activeCount: 0,
+  queue: [],
+  isPaused: false,
+  pauseReason: "",
 };
 window.onload = function () {
   bindModeEvents("add");
@@ -21,6 +28,7 @@ window.onload = function () {
 function bindAuthEvents() {
   const loginBtn = document.getElementById("loginBtn");
   const logoutBtn = document.getElementById("logoutBtn");
+  const reauthBtn = document.getElementById("reauthBtn");
   if (loginBtn) {
     loginBtn.addEventListener("click", () => {
       loginWithGoogle();
@@ -31,189 +39,155 @@ function bindAuthEvents() {
       logoutGoogle();
     });
   }
-}
-function initGoogleAuth() {
-  if (
-    !authState.clientId ||
-    !window.google ||
-    !google.accounts ||
-    !google.accounts.oauth2
-  ) {
-    return;
-  }
-  authState.tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: authState.clientId,
-    scope: (authState.scopes || []).join(" "),
-    callback: handleGoogleTokenResponse,
-  });
-}
-async function loginWithGoogle() {
-  if (!authState.tokenClient) {
-    showAuthMessage(
-      "Thiếu GOOGLE_CLIENT_ID hoặc Google Identity chưa sẵn sàng.",
-      true,
-    );
-    return;
-  }
-  try {
-    await requestGoogleAccessToken({
-      interactive: !authState.accessToken,
-      refreshProfile: true,
+  if (reauthBtn) {
+    reauthBtn.addEventListener("click", () => {
+      loginWithGoogle({ forceInteractive: true });
     });
-  } catch (error) {
-    showAuthMessage(normalizeError(error), true);
   }
 }
-function logoutGoogle() {
-  if (
-    authState.accessToken &&
-    window.google &&
-    google.accounts &&
-    google.accounts.oauth2
-  ) {
-    google.accounts.oauth2.revoke(authState.accessToken, () => {});
-  }
+function initGoogleAuth() {}
+function loginWithGoogle() {
+  const returnTo =
+    window.location.pathname + window.location.search + window.location.hash;
+  const target = new URL(
+    authState.authStartPath || "/auth/google/start",
+    window.location.origin,
+  );
+  target.searchParams.set("returnTo", returnTo || "/");
+  window.location.assign(target.toString());
+}
+async function logoutGoogle() {
+  try {
+    await fetch("/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+    });
+  } catch (_) {}
   authState.accessToken = "";
   authState.accessTokenExpiresAt = 0;
+  authState.isAuthenticated = false;
   authState.email = "";
   authState.name = "";
   authState.pendingTokenRequest = null;
+  authState.requiresReauth = false;
+  uploadScheduler.isPaused = false;
+  uploadScheduler.pauseReason = "";
   updateAuthUi();
 }
 function updateAuthUi() {
   const status = document.getElementById("authStatus");
   const loginBtn = document.getElementById("loginBtn");
   const logoutBtn = document.getElementById("logoutBtn");
+  const reauthBtn = document.getElementById("reauthBtn");
+  const reauthNotice = document.getElementById("reauthNotice");
   const loginGate = document.getElementById("loginGate");
   const mainApp = document.getElementById("mainApp");
   const userChip = document.getElementById("userChip");
-  const loggedIn = !!authState.accessToken;
-  if (status) {
-    status.innerText = loggedIn
+  const loggedIn = !!authState.isAuthenticated;
+  const needsReauth = !!authState.requiresReauth;
+  const showMainApp = loggedIn || needsReauth;
+  const authMessage = needsReauth
+    ? uploadScheduler.pauseReason ||
+      "Phiên đăng nhập Google đã hết hạn. Hãy đăng nhập lại để tiếp tục upload."
+    : loggedIn
       ? `Đang đăng nhập: ${authState.name || authState.email || "Google User"}`
       : "Chưa đăng nhập.";
+  if (status) {
+    status.innerText = authMessage;
+    status.className = "auth-status" + (needsReauth ? " text-danger" : "");
   }
-  if (loginBtn) loginBtn.classList.toggle("d-none", loggedIn);
+  if (loginBtn) loginBtn.classList.toggle("d-none", showMainApp);
   if (logoutBtn) logoutBtn.classList.toggle("d-none", !loggedIn);
-  if (loginGate) loginGate.classList.toggle("d-none", loggedIn);
-  if (mainApp) mainApp.classList.toggle("d-none", !loggedIn);
+  if (reauthBtn) reauthBtn.classList.toggle("d-none", !needsReauth);
+  if (loginGate) loginGate.classList.toggle("d-none", showMainApp);
+  if (mainApp) mainApp.classList.toggle("d-none", !showMainApp);
   if (userChip) {
-    userChip.classList.toggle("d-none", !loggedIn);
-    userChip.innerText = loggedIn
-      ? authState.name || authState.email || "Google User"
-      : "";
+    const userLabel = authState.name || authState.email || "Google User";
+    userChip.classList.toggle("d-none", !showMainApp || !userLabel);
+    userChip.innerText = userLabel;
+  }
+  if (reauthNotice) {
+    reauthNotice.classList.toggle("d-none", !needsReauth);
+    reauthNotice.innerText = needsReauth ? authMessage : "";
   }
 }
 function showAuthMessage(message, isError) {
   const status = document.getElementById("authStatus");
+  const reauthNotice = document.getElementById("reauthNotice");
   if (!status) return;
   status.innerText = message;
   status.className = "auth-status" + (isError ? " text-danger" : "");
-}
-async function handleGoogleTokenResponse(tokenResponse) {
-  const pending = authState.pendingTokenRequest;
-  authState.pendingTokenRequest = null;
-  if (!tokenResponse || tokenResponse.error) {
-    if (pending && !pending.interactive) {
-      authState.accessToken = "";
-      authState.accessTokenExpiresAt = 0;
-      updateAuthUi();
-    }
-    const error = new Error(
-      tokenResponse && tokenResponse.error
-        ? `Đăng nhập thất bại: ${tokenResponse.error}`
-        : "Không thể lấy access token Google.",
-    );
-    if (pending) {
-      pending.reject(error);
-      return;
-    }
-    showAuthMessage(error.message, true);
-    return;
-  }
-  authState.accessToken = tokenResponse.access_token || "";
-  authState.accessTokenExpiresAt = tokenResponse.expires_in
-    ? Date.now() + Number(tokenResponse.expires_in) * 1000
-    : 0;
-  try {
-    if (
-      !authState.email ||
-      !authState.name ||
-      (pending && pending.refreshProfile)
-    ) {
-      const me = await apiGet("/api/me", {}, {
-        public: false,
-        retryOnAuthFailure: false,
-      });
-      authState.email = me.email || "";
-      authState.name = me.name || "";
-    }
-    updateAuthUi();
-    if (pending) {
-      pending.resolve(authState.accessToken);
-    }
-  } catch (error) {
-    authState.accessToken = "";
-    authState.accessTokenExpiresAt = 0;
-    updateAuthUi();
-    if (pending) {
-      pending.reject(error);
-      return;
-    }
-    showAuthMessage(normalizeError(error), true);
+  if (reauthNotice && authState.requiresReauth) {
+    reauthNotice.classList.remove("d-none");
+    reauthNotice.innerText = message;
   }
 }
-function requestGoogleAccessToken(options) {
-  if (!authState.tokenClient) {
-    return Promise.reject(
-      new Error("Thiếu GOOGLE_CLIENT_ID hoặc Google Identity chưa sẵn sàng."),
-    );
-  }
+async function requestGoogleAccessToken(options) {
   if (authState.pendingTokenRequest) {
     return authState.pendingTokenRequest.promise;
   }
   const interactive = !!(options && options.interactive);
-  const refreshProfile = !!(options && options.refreshProfile);
+  const minTtlMs = Number(options?.minTtlMs || 0);
   const pending = {};
   pending.interactive = interactive;
-  pending.refreshProfile = refreshProfile;
   pending.promise = new Promise((resolve, reject) => {
     pending.resolve = resolve;
     pending.reject = reject;
   });
   authState.pendingTokenRequest = pending;
-  try {
-    authState.tokenClient.requestAccessToken({
-      prompt: options?.prompt !== undefined ? options.prompt : (interactive ? "consent" : ""),
-    });
-  } catch (error) {
-    authState.pendingTokenRequest = null;
-    pending.reject(error);
+  const url = new URL("/api/google-drive-token", window.location.origin);
+  if (minTtlMs > 0) {
+    url.searchParams.set("minTtlMs", String(minTtlMs));
   }
+  fetch(url.toString(), {
+    credentials: "same-origin",
+  })
+    .then((response) => parseApiResponse(response))
+    .then((payload) => {
+      authState.accessToken = payload.accessToken || "";
+      authState.accessTokenExpiresAt = Number(payload.expiresAt || 0);
+      authState.isAuthenticated = true;
+      authState.email = payload.user?.email || authState.email;
+      authState.name = payload.user?.name || authState.name;
+      authState.requiresReauth = false;
+      updateAuthUi();
+      pending.resolve(authState.accessToken);
+    })
+    .catch((error) => {
+      const authError = isAuthError(error) ? markAuthError(error) : error;
+      if (isAuthError(authError)) {
+        authState.accessToken = "";
+        authState.accessTokenExpiresAt = 0;
+        authState.isAuthenticated = false;
+        authState.requiresReauth = true;
+        if (authState.email || authState.name) {
+          uploadScheduler.pauseReason = getAuthPauseMessage(authError);
+        }
+        updateAuthUi();
+        if (interactive) {
+          loginWithGoogle({ forceInteractive: true });
+        }
+      }
+      pending.reject(authError);
+    })
+    .finally(() => {
+      authState.pendingTokenRequest = null;
+    });
   return pending.promise;
 }
 async function ensureTokenForRetry() {
-  try {
-    await requestGoogleAccessToken({ interactive: false });
-  } catch (_) {
-    await requestGoogleAccessToken({ interactive: true, prompt: "" });
-  }
+  await requestGoogleAccessToken({ interactive: false });
 }
 async function ensureFreshGoogleAccessToken(minTtlMs) {
   const ttlMs = Number(minTtlMs || 0);
-  if (!authState.accessToken) {
-    throw new Error("Vui lòng đăng nhập Google trước.");
-  }
-  if (!authState.accessTokenExpiresAt) {
-    return authState.accessToken;
-  }
   if (
+    authState.accessToken &&
     authState.accessTokenExpiresAt &&
     authState.accessTokenExpiresAt - Date.now() > ttlMs
   ) {
     return authState.accessToken;
   }
-  return requestGoogleAccessToken({ interactive: false, refreshProfile: false });
+  return requestGoogleAccessToken({ interactive: false, minTtlMs: ttlMs });
 }
 function createModeState(mode) {
   return {
@@ -302,8 +276,11 @@ async function loadInitialData() {
     document.getElementById("editSelectedGame").value =
       document.getElementById("editGame").value || "GTA";
     populateTeams(res.teams || []);
-    authState.clientId = res.googleClientId || "";
-    authState.scopes = res.googleScopes || [];
+    authState.authStartPath = res.authStartPath || "/auth/google/start";
+    authState.isAuthenticated = !!res.authenticated;
+    authState.email = res.user?.email || "";
+    authState.name = res.user?.name || "";
+    authState.requiresReauth = false;
     initGoogleAuth();
     updateAuthUi();
     updateMetaStatus("add", "Chọn Team để tải danh sách Batch.");
@@ -575,6 +552,7 @@ function addUploadRow(mode, preferredSessionId) {
     searchQuery: "",
     debounceTimer: null,
     uploadMeta: null,
+    isQueued: false,
     isUploading: false,
     progressTimer: null,
     summaryKind: "idle",
@@ -795,6 +773,9 @@ function addUploadRow(mode, preferredSessionId) {
   return row;
 }
 function clearRows(mode) {
+  uploadScheduler.queue = uploadScheduler.queue.filter(
+    (item) => item.mode !== mode,
+  );
   state[mode].rows = [];
   document.getElementById(mode + "Rows").innerHTML = "";
   toggleEmptyState(mode);
@@ -802,8 +783,15 @@ function clearRows(mode) {
 function removeUploadRow(mode, key) {
   const row = state[mode].rows.find((item) => item.key === key);
   if (!row) return;
+  if (row.isUploading) {
+    showRowStatus(mode, key, false, "Session đang upload, chưa thể xóa lúc này.");
+    return;
+  }
   if (!confirm("Bạn có chắc muốn xóa session này không?")) {
     return;
+  }
+  if (row.isQueued) {
+    removeQueuedUpload(mode, key);
   }
   if (!row.uploadMeta) {
     deleteRowCard(mode, key);
@@ -862,6 +850,9 @@ function toggleRowDetails(mode, key) {
 function clearRowFiles(mode, key) {
   const row = state[mode].rows.find((item) => item.key === key);
   if (!row) return;
+  if (row.isQueued) {
+    removeQueuedUpload(mode, key);
+  }
   const csvInput = document.getElementById(row.csvField);
   const mp4Input = document.getElementById(row.mp4Field);
   if (csvInput) csvInput.value = "";
@@ -1153,7 +1144,7 @@ function handleBulkFolderFiles(mode, files) {
       return;
     }
     messages.push(
-      folderName + ": đang tạo folder, upload file và cập nhật Sheet.",
+      folderName + ": đã đưa vào hàng đợi upload.",
     );
   });
   if (!messages.length) {
@@ -1463,10 +1454,134 @@ function deleteFile(fileId, mode, sessionId) {
       );
     });
 }
+function removeQueuedUpload(mode, key) {
+  uploadScheduler.queue = uploadScheduler.queue.filter(
+    (item) => !(item.mode === mode && item.key === key),
+  );
+  const row = state[mode].rows.find((item) => item.key === key);
+  if (row) row.isQueued = false;
+}
+function enqueueRowUpload(mode, key) {
+  const row = state[mode].rows.find((item) => item.key === key);
+  if (!row || row.isUploading) return;
+  if (row.isQueued) {
+    showRowStatus(
+      mode,
+      key,
+      true,
+      uploadScheduler.isPaused
+        ? "Đang chờ đăng nhập lại Google để tiếp tục upload..."
+        : "Đang chờ hàng đợi upload...",
+    );
+    return;
+  }
+  row.isQueued = true;
+  uploadScheduler.queue.push({ mode, key });
+  if (uploadScheduler.isPaused) {
+    showRowStatus(
+      mode,
+      key,
+      true,
+      "Đang chờ đăng nhập lại Google để tiếp tục upload...",
+    );
+  } else if (uploadScheduler.activeCount >= uploadScheduler.maxConcurrent) {
+    showRowStatus(mode, key, true, "Đang chờ hàng đợi upload...");
+  } else {
+    showRowStatus(
+      mode,
+      key,
+      true,
+      "Đã đưa vào hàng đợi. Upload sẽ bắt đầu ngay khi có slot trống.",
+    );
+  }
+  processUploadQueue();
+}
+function processUploadQueue() {
+  if (uploadScheduler.isPaused) return;
+  while (
+    uploadScheduler.activeCount < uploadScheduler.maxConcurrent &&
+    uploadScheduler.queue.length
+  ) {
+    const next = uploadScheduler.queue.shift();
+    const row = next
+      ? state[next.mode].rows.find((item) => item.key === next.key)
+      : null;
+    if (!next || !row || !row.isQueued) continue;
+    uploadScheduler.activeCount += 1;
+    void runQueuedRowUpload(next.mode, next.key).finally(() => {
+      uploadScheduler.activeCount = Math.max(0, uploadScheduler.activeCount - 1);
+      processUploadQueue();
+    });
+  }
+}
+async function runQueuedRowUpload(mode, key) {
+  const row = state[mode].rows.find((item) => item.key === key);
+  if (!row) return;
+  row.isQueued = false;
+  row.isUploading = true;
+  startRowProgress(row);
+  try {
+    if (row.uploadMeta) {
+      showRowStatus(
+        mode,
+        key,
+        true,
+        "Đang xóa thư mục upload trước đó để thay thế...",
+      );
+      const replaceRes = await apiPostJson("/api/delete-uploaded-session", {
+        mode,
+        batch: state[mode].batch,
+        team: state[mode].team,
+        sessionId: row.uploadMeta.sessionId,
+        rowNumber: row.uploadMeta.rowNumber,
+        oldDriverLink: row.uploadMeta.oldDriverLink || "",
+        newDriverLink: row.uploadMeta.newDriverLink,
+        restoreMode: "old",
+      });
+      if (!replaceRes || !replaceRes.ok) {
+        throw new Error(
+          replaceRes && replaceRes.message
+            ? replaceRes.message
+            : "Không thể thay thế lần upload trước.",
+        );
+      }
+      row.uploadMeta = null;
+    }
+    showRowStatus(
+      mode,
+      key,
+      true,
+      "Đang tạo folder, upload file và cập nhật Sheet...",
+    );
+    const res = await apiUploadRow(mode, row);
+    completeRowProgress(row);
+    showRowStatus(
+      mode,
+      key,
+      !!(res && res.ok),
+      res && res.message ? res.message : "Đã xử lý xong yêu cầu.",
+    );
+    if (res && res.ok && res.result) {
+      row.uploadMeta = res.result;
+      loadRowSessionDetails(mode, key, { forceReload: true });
+    }
+  } catch (err) {
+    if (isAuthError(err)) {
+      stopRowProgress(row);
+      requeueRowForAuth(mode, key);
+      pauseUploadQueueForAuth(err);
+      return;
+    }
+    failRowProgress(row);
+    showRowStatus(mode, key, false, "Lỗi hệ thống: " + normalizeError(err));
+  } finally {
+    row.isUploading = false;
+  }
+}
 function uploadRow(mode, key) {
   const row = state[mode].rows.find((item) => item.key === key);
   if (!row) return;
-  if (row.isUploading) return;
+  if (row.isUploading || row.isQueued) return;
   if (!state[mode].team || !state[mode].batch) {
     showRowStatus(
       mode,
@@ -1537,84 +1652,7 @@ function uploadRow(mode, key) {
     : "";
   document.getElementById(mode + "UploadManifest").value =
     JSON.stringify(manifest);
-  const runUpload = () => {
-    row.isUploading = true;
-    startRowProgress(row);
-    showRowStatus(
-      mode,
-      key,
-      true,
-      "Đang tạo folder, upload file và cập nhật Sheet...",
-    );
-    apiUploadRow(mode, row)
-      .then((res) => {
-        row.isUploading = false;
-        completeRowProgress(row);
-        showRowStatus(
-          mode,
-          key,
-          !!(res && res.ok),
-          res && res.message ? res.message : "Đã xử lý xong yêu cầu.",
-        );
-        if (res && res.ok && res.result) {
-          row.uploadMeta = res.result;
-          loadRowSessionDetails(mode, key, { forceReload: true });
-        }
-      })
-      .catch((err) => {
-        row.isUploading = false;
-        failRowProgress(row);
-        showRowStatus(
-          mode,
-          key,
-          false,
-          "Lỗi hệ thống: " + normalizeError(err),
-        );
-      });
-  };
-  if (!row.uploadMeta) {
-    runUpload();
-    return;
-  }
-  showRowStatus(
-    mode,
-    key,
-    true,
-    "Đang xóa thư mục upload trước đó để thay thế...",
-  );
-  apiPostJson("/api/delete-uploaded-session", {
-    mode: mode,
-    batch: state[mode].batch,
-    team: state[mode].team,
-    sessionId: row.uploadMeta.sessionId,
-    rowNumber: row.uploadMeta.rowNumber,
-    oldDriverLink: row.uploadMeta.oldDriverLink || "",
-    newDriverLink: row.uploadMeta.newDriverLink,
-    restoreMode: "old",
-  })
-    .then((res) => {
-      if (!res || !res.ok) {
-        showRowStatus(
-          mode,
-          key,
-          false,
-          res && res.message
-            ? res.message
-            : "Không thể thay thế lần upload trước.",
-        );
-        return;
-      }
-      row.uploadMeta = null;
-      runUpload();
-    })
-    .catch((err) => {
-      showRowStatus(
-        mode,
-        key,
-        false,
-        "Lỗi khi thay thế dữ liệu upload: " + normalizeError(err),
-      );
-    });
+  enqueueRowUpload(mode, key);
 }
 function updateMetaStatus(mode, message, isError) {
   const box = document.getElementById(mode + "MetaStatus");
@@ -1822,14 +1860,7 @@ async function apiUploadRow(mode, row) {
   }
 }
 function buildAuthHeaders(options) {
-  const publicCall = options && options.public;
-  if (!publicCall && !authState.accessToken) {
-    throw new Error("Vui lòng đăng nhập Google trước.");
-  }
   const headers = {};
-  if (!publicCall && authState.accessToken) {
-    headers.Authorization = "Bearer " + authState.accessToken;
-  }
   const contentType = options && options.contentType;
   if (contentType) {
     headers["Content-Type"] = contentType;
@@ -1838,30 +1869,52 @@ function buildAuthHeaders(options) {
 }
 async function fetchApiWithGoogleAuth(url, init, options) {
   const publicCall = options && options.public;
-  const retryOnAuthFailure = !publicCall && options?.retryOnAuthFailure !== false;
+  const retryOnAuthFailure =
+    !publicCall && options?.retryOnAuthFailure !== false;
+  const retryOnTransient =
+    options?.retryOnTransient !== false &&
+    String((init || {}).method || "GET").toUpperCase() === "GET";
   const initHeaders =
     (init || {}).headers && typeof (init || {}).headers === "object"
       ? (init || {}).headers
       : {};
-  let response = await fetch(url, {
-    ...(init || {}),
-    headers: {
-      ...initHeaders,
-      ...buildAuthHeaders(options),
-    },
-  });
-  if (!retryOnAuthFailure || response.status !== 401) {
+  const maxAttempts = retryOnTransient ? 4 : 1;
+  let authRetried = false;
+  let lastError = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    let response = null;
+    try {
+      response = await fetch(url, {
+        ...(init || {}),
+        headers: {
+          ...initHeaders,
+          ...buildAuthHeaders(options),
+        },
+      });
+    } catch (error) {
+      lastError = error;
+      if (!retryOnTransient || attempt === maxAttempts - 1) {
+        throw error;
+      }
+      await sleep(getBackoffDelayMs(attempt, 800));
+      continue;
+    }
+    if (retryOnAuthFailure && !authRetried && response.status === 401) {
+      authRetried = true;
+      await ensureTokenForRetry();
+      continue;
+    }
+    if (
+      retryOnTransient &&
+      shouldRetryApiResponse(response) &&
+      attempt < maxAttempts - 1
+    ) {
+      await sleep(getResponseBackoffDelayMs(response, attempt, 800));
+      continue;
+    }
     return response;
   }
-  await ensureTokenForRetry();
-  response = await fetch(url, {
-    ...(init || {}),
-    headers: {
-      ...initHeaders,
-      ...buildAuthHeaders(options),
-    },
-  });
-  return response;
+  throw lastError || new Error("Không thể kết nối API.");
 }
 async function uploadFileDirectToDrive(file, uploadSession, fileType) {
   await ensureFreshGoogleAccessToken(60 * 1000);
@@ -1875,26 +1928,36 @@ async function uploadFileDirectToDrive(file, uploadSession, fileType) {
       `uploaded_at: ${new Date().toISOString()}`,
     ].join("\n"),
   };
-  const initResponse = await fetchDriveWithGoogleAuth(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink",
-    {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + authState.accessToken,
-        "Content-Type": "application/json; charset=UTF-8",
-        "X-Upload-Content-Type": file.type || "application/octet-stream",
-        "X-Upload-Content-Length": String(file.size || 0),
-      },
-      body: JSON.stringify(metadata),
-    },
-  );
-  if (!initResponse.ok) {
-    throw new Error(
-      await extractDriveError(
-        initResponse,
-        "Không thể khởi tạo phiên upload Drive.",
-      ),
+  let initResponse = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      initResponse = await fetchDriveWithGoogleAuth(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink",
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer " + authState.accessToken,
+            "Content-Type": "application/json; charset=UTF-8",
+            "X-Upload-Content-Type": file.type || "application/octet-stream",
+            "X-Upload-Content-Length": String(file.size || 0),
+          },
+          body: JSON.stringify(metadata),
+        },
+      );
+    } catch (error) {
+      if (attempt === 4) throw error;
+      await sleep(getBackoffDelayMs(attempt, 1200));
+      continue;
+    }
+    if (initResponse.ok) break;
+    const initMessage = await extractDriveError(
+      initResponse.clone(),
+      "Không thể khởi tạo phiên upload Drive.",
     );
+    if (attempt === 4 || !shouldRetryDriveResponse(initResponse, initMessage)) {
+      throw new Error(initMessage);
+    }
+    await sleep(getResponseBackoffDelayMs(initResponse, attempt, 1200));
   }
   const resumableUrl = initResponse.headers.get("location");
   if (!resumableUrl) {
@@ -1909,10 +1972,7 @@ async function uploadFileDirectToDrive(file, uploadSession, fileType) {
     const chunk = file.slice(offset, end);
     let uploadResponse = null;
     let lastError = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
-      }
+    for (let attempt = 0; attempt < 5; attempt++) {
       try {
         uploadResponse = await fetch(resumableUrl, {
           method: "PUT",
@@ -1924,13 +1984,38 @@ async function uploadFileDirectToDrive(file, uploadSession, fileType) {
           body: chunk,
         });
         lastError = null;
-        break;
+        if (uploadResponse.status === 308 || uploadResponse.ok) {
+          break;
+        }
+        const uploadMessage = await extractDriveError(
+          uploadResponse.clone(),
+          `Upload file ${file.name} thất bại.`,
+        );
+        if (
+          attempt < 4 &&
+          shouldRetryDriveResponse(uploadResponse, uploadMessage)
+        ) {
+          await sleep(getResponseBackoffDelayMs(uploadResponse, attempt, 1200));
+          continue;
+        }
+        throw new Error(uploadMessage);
       } catch (err) {
         lastError = err;
+        uploadResponse = null;
+        if (attempt === 4) {
+          break;
+        }
+        await sleep(getBackoffDelayMs(attempt, 1200));
+        continue;
       }
     }
     if (lastError) {
-      throw new Error(`Upload file ${file.name} thất bại sau 3 lần thử: ${lastError.message}`);
+      throw new Error(
+        `Upload file ${file.name} thất bại sau nhiều lần thử: ${lastError.message}`,
+      );
+    }
+    if (!uploadResponse) {
+      throw new Error(`Không thể upload chunk cho file ${file.name}.`);
     }
     if (uploadResponse.status === 308) {
       const rangeHeader = uploadResponse.headers.get("range") || "";
@@ -1977,6 +2062,119 @@ async function fetchDriveWithGoogleAuth(url, init) {
   });
   return response;
 }
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function getRetryAfterDelayMs(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) return 0;
+  return seconds * 1000;
+}
+function getBackoffDelayMs(attempt, baseMs) {
+  const jitter = Math.floor(Math.random() * 300);
+  return Math.min(baseMs * Math.pow(2, attempt) + jitter, 15000);
+}
+function getResponseBackoffDelayMs(response, attempt, baseMs) {
+  const retryAfter = getRetryAfterDelayMs(
+    response && response.headers ? response.headers.get("retry-after") : "",
+  );
+  return retryAfter || getBackoffDelayMs(attempt, baseMs);
+}
+function isRateLimitMessage(message) {
+  return /user rate limit exceeded|rate limit exceeded|ratelimitexceeded|userratelimitexceeded|quota exceeded|too many requests/i.test(
+    String(message || ""),
+  );
+}
+function shouldRetryApiResponse(response) {
+  return [408, 425, 429, 500, 502, 503, 504].includes(
+    Number(response && response.status),
+  );
+}
+function shouldRetryDriveResponse(response, message) {
+  const status = Number(response && response.status);
+  if (status === 403) {
+    return isRateLimitMessage(message);
+  }
+  return shouldRetryApiResponse(response);
+}
+function createAuthError(message) {
+  const error = new Error(
+    message ||
+      "Phiên đăng nhập Google đã hết hạn. Hãy đăng nhập lại để tiếp tục.",
+  );
+  error.isAuthFailure = true;
+  return error;
+}
+function markAuthError(error) {
+  if (error && error.isAuthFailure) return error;
+  const wrapped =
+    error instanceof Error ? error : new Error(normalizeError(error));
+  wrapped.isAuthFailure = true;
+  return wrapped;
+}
+function isAuthError(error) {
+  if (error && error.isAuthFailure) return true;
+  return /vui lòng đăng nhập google trước|token google không hợp lệ|đã hết hạn|đăng nhập thất bại|không thể lấy access token google|unauthorized|http 401|login_required|consent_required|access_denied|popup/i.test(
+    normalizeError(error).toLowerCase(),
+  );
+}
+function getAuthPauseMessage(error) {
+  const message = normalizeError(error);
+  if (/popup|closed|cancel|denied/i.test(message)) {
+    return "Đăng nhập Google bị gián đoạn. Bấm \"Đăng nhập lại\" để tiếp tục hàng đợi upload.";
+  }
+  return "Phiên đăng nhập Google đã hết hạn hoặc không còn hợp lệ. Bấm \"Đăng nhập lại\" để tiếp tục hàng đợi upload.";
+}
+function requeueRowForAuth(mode, key) {
+  const row = state[mode].rows.find((item) => item.key === key);
+  if (!row) return;
+  uploadScheduler.queue = uploadScheduler.queue.filter(
+    (item) => !(item.mode === mode && item.key === key),
+  );
+  row.isQueued = true;
+  uploadScheduler.queue.unshift({ mode, key });
+  showRowStatus(
+    mode,
+    key,
+    true,
+    "Đang chờ đăng nhập lại Google để tiếp tục upload...",
+  );
+}
+function pauseUploadQueueForAuth(error) {
+  uploadScheduler.isPaused = true;
+  uploadScheduler.pauseReason = getAuthPauseMessage(error);
+  authState.requiresReauth = true;
+  updateAuthUi();
+  uploadScheduler.queue.forEach((item) => {
+    const row = state[item.mode].rows.find((entry) => entry.key === item.key);
+    if (!row || !row.isQueued) return;
+    showRowStatus(
+      item.mode,
+      item.key,
+      true,
+      "Đang chờ đăng nhập lại Google để tiếp tục upload...",
+    );
+  });
+}
+function resumeUploadQueueAfterAuth() {
+  const wasPaused = uploadScheduler.isPaused || authState.requiresReauth;
+  uploadScheduler.isPaused = false;
+  uploadScheduler.pauseReason = "";
+  authState.requiresReauth = false;
+  updateAuthUi();
+  if (!wasPaused) return;
+  uploadScheduler.queue.forEach((item) => {
+    const row = state[item.mode].rows.find((entry) => entry.key === item.key);
+    if (!row || !row.isQueued) return;
+    showRowStatus(
+      item.mode,
+      item.key,
+      true,
+      "Đã đăng nhập lại. Đang chờ slot upload...",
+    );
+  });
+  processUploadQueue();
+}
 async function extractDriveError(response, fallbackMessage) {
   let payload = null;
   try {
@@ -2001,6 +2199,9 @@ async function parseApiResponse(response) {
   }
   const message =
     data && data.message ? data.message : `HTTP ${response.status}`;
+  if (response.status === 401) {
+    throw createAuthError(message);
+  }
   throw new Error(message);
 }
 function escapeHtml(value) {
@@ -2064,6 +2265,7 @@ function formatTeamMeta(team) {
 }
 function resetRowUploadState(row) {
   row.uploadMeta = null;
+  row.isQueued = false;
   row.isUploading = false;
   stopRowProgress(row);
 }

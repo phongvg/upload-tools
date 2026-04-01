@@ -16,7 +16,20 @@ import {
   trashFolder,
   trashFile,
 } from "./services/drive.js";
-import { getUserProfile, REQUIRED_SCOPES } from "./google.js";
+import {
+  exchangeGoogleAuthCode,
+  getGoogleOAuthConsentUrl,
+  getUserProfile,
+  refreshGoogleAccessToken,
+  REQUIRED_SCOPES,
+} from "./google.js";
+import {
+  createAuthSessionId,
+  deleteAuthSession,
+  getAuthSession,
+  patchAuthSession,
+  saveAuthSession,
+} from "./services/authSessions.js";
 import { getSharedCache, setSharedCache } from "./services/cache.js";
 import {
   extractFolderId,
@@ -30,19 +43,114 @@ const BATCH_CACHE_TTL_MS = 30 * 60 * 1000;
 const PATH_CACHE_TTL_MS = 30 * 60 * 1000;
 const SESSION_CACHE_TTL_MS = 30 * 1000;
 const USER_PROFILE_CACHE_TTL_MS = 5 * 60 * 1000;
+const AUTH_STATE_COOKIE = "upload_oauth_state";
+const AUTH_RETURN_TO_COOKIE = "upload_return_to";
+const AUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const batchMapCache = { value: null, expiresAt: 0 };
 const gameFolderCache = new Map();
 const sessionCache = new Map();
 const googleUserCache = new Map();
 app.use(express.json({ limit: "20mb" }));
 app.use(express.static(path.join(__dirname, "..", "public")));
-app.get("/api/bootstrap", async (_req, res) => {
+app.get("/auth/google/start", (req, res) => {
+  try {
+    const state = createAuthSessionId();
+    const returnTo = sanitizeReturnTo(req.query.returnTo);
+    setCookie(res, AUTH_STATE_COOKIE, state, {
+      maxAgeMs: AUTH_STATE_TTL_MS,
+    });
+    setCookie(res, AUTH_RETURN_TO_COOKIE, returnTo, {
+      maxAgeMs: AUTH_STATE_TTL_MS,
+    });
+    res.redirect(getGoogleOAuthConsentUrl(state));
+  } catch (error) {
+    res.status(500).send(`Không thể bắt đầu đăng nhập Google: ${error.message}`);
+  }
+});
+app.get("/auth/google/callback", async (req, res) => {
+  try {
+    const code = String(req.query.code || "");
+    const state = String(req.query.state || "");
+    const expectedState = getCookieValue(req, AUTH_STATE_COOKIE);
+    const returnTo = sanitizeReturnTo(getCookieValue(req, AUTH_RETURN_TO_COOKIE));
+    if (!code || !state || !expectedState || state !== expectedState) {
+      clearCookie(res, AUTH_STATE_COOKIE);
+      clearCookie(res, AUTH_RETURN_TO_COOKIE);
+      res.status(400).send("State đăng nhập Google không hợp lệ hoặc đã hết hạn.");
+      return;
+    }
+    const existingSessionId = getCookieValue(req, config.authSessionCookieName);
+    const existingSession = existingSessionId
+      ? await getAuthSession(existingSessionId)
+      : null;
+    const tokens = await exchangeGoogleAuthCode(code);
+    const refreshToken =
+      String(tokens.refresh_token || "") ||
+      String(existingSession?.refreshToken || "");
+    const accessToken = String(tokens.access_token || "");
+    const accessTokenExpiresAt = Number(tokens.expiry_date || 0);
+    if (!refreshToken) {
+      throw new Error(
+        "Google không trả về refresh token. Hãy gỡ quyền ứng dụng rồi đăng nhập lại.",
+      );
+    }
+    const profile = accessToken ? await getUserProfile(accessToken) : {};
+    const sessionId = existingSessionId || createAuthSessionId();
+    await saveAuthSession(sessionId, {
+      refreshToken,
+      accessToken,
+      accessTokenExpiresAt,
+      user: {
+        email: normalizeString(profile?.email),
+        name: normalizeString(profile?.name),
+        picture: normalizeString(profile?.picture),
+      },
+      createdAt: existingSession?.createdAt || Date.now(),
+    });
+    setCookie(res, config.authSessionCookieName, sessionId, {
+      httpOnly: true,
+      maxAgeMs: config.authSessionTtlMs,
+    });
+    clearCookie(res, AUTH_STATE_COOKIE);
+    clearCookie(res, AUTH_RETURN_TO_COOKIE);
+    res.redirect(returnTo);
+  } catch (error) {
+    clearCookie(res, AUTH_STATE_COOKIE);
+    clearCookie(res, AUTH_RETURN_TO_COOKIE);
+    res.status(500).send(`Đăng nhập Google thất bại: ${error.message}`);
+  }
+});
+app.post("/auth/logout", async (req, res) => {
+  try {
+    const sessionId = getCookieValue(req, config.authSessionCookieName);
+    if (sessionId) {
+      await deleteAuthSession(sessionId);
+    }
+    clearCookie(res, config.authSessionCookieName);
+    clearCookie(res, AUTH_STATE_COOKIE);
+    clearCookie(res, AUTH_RETURN_TO_COOKIE);
+    res.json({ ok: true, message: "Đã đăng xuất." });
+  } catch (error) {
+    res.status(500).json({ ok: false, message: `Lỗi khi đăng xuất: ${error.message}` });
+  }
+});
+app.get("/api/bootstrap", async (req, res) => {
+  const auth = await getOptionalAuthState(req);
   res.json({
     ok: true,
     teams: config.teamOptions,
     date: getTodayDate(),
     games: ["GTA"],
-    googleClientId: config.googleClientId,
+    authStartPath: "/auth/google/start",
+    authenticated: !!auth,
+    user: auth
+      ? {
+          email: auth.user?.email || "",
+          name: auth.user?.name || "",
+          picture: auth.user?.picture || "",
+        }
+      : null,
+    googleClientId: "",
     googleScopes: REQUIRED_SCOPES,
   });
 });
@@ -96,6 +204,18 @@ app.get("/api/me", requireGoogleUser, async (req, res) => {
     email: req.googleUser?.email || "",
     name: req.googleUser?.name || "",
     picture: req.googleUser?.picture || "",
+  });
+});
+app.get("/api/google-drive-token", requireGoogleUser, async (req, res) => {
+  res.json({
+    ok: true,
+    accessToken: req.googleAccessToken || "",
+    expiresAt: Number(req.googleAccessTokenExpiresAt || 0),
+    user: {
+      email: req.googleUser?.email || "",
+      name: req.googleUser?.name || "",
+      picture: req.googleUser?.picture || "",
+    },
   });
 });
 app.get("/api/session-details", requireGoogleUser, async (req, res) => {
@@ -380,27 +500,104 @@ app.post("/api/delete-uploaded-session", requireGoogleUser, async (req, res) => 
   }
 });
 function requireGoogleUser(req, res, next) {
-  const accessToken = getAccessTokenFromRequest(req);
-  if (!accessToken) {
-    res.status(401).json({ ok: false, message: "Vui lòng đăng nhập Google trước." });
-    return;
-  }
-  getCachedGoogleUser(accessToken)
-    .then((profile) => {
-      req.googleAccessToken = accessToken;
-      req.googleUser = profile || {};
+  resolveGoogleRequestAuth(req)
+    .then((auth) => {
+      if (!auth || !auth.accessToken) {
+        res.status(401).json({ ok: false, message: "Vui lòng đăng nhập Google trước." });
+        return;
+      }
+      req.googleAccessToken = auth.accessToken;
+      req.googleAccessTokenExpiresAt = Number(auth.accessTokenExpiresAt || 0);
+      req.googleUser = auth.user || {};
+      req.googleSessionId = auth.sessionId || "";
       next();
     })
-    .catch((error) => {
+    .catch(async (error) => {
+      const sessionId = getCookieValue(req, config.authSessionCookieName);
+      if (sessionId) {
+        await deleteAuthSession(sessionId).catch(() => {});
+      }
+      clearCookie(res, config.authSessionCookieName);
       res.status(401).json({ ok: false, message: `Token Google không hợp lệ hoặc đã hết hạn: ${error.message}` });
     });
 }
-
 
 function getAccessTokenFromRequest(req) {
   const authHeader = String(req.headers.authorization || "");
   if (!authHeader.startsWith("Bearer ")) return "";
   return normalizeString(authHeader.slice(7));
+}
+
+async function resolveGoogleRequestAuth(req) {
+  const accessToken = getAccessTokenFromRequest(req);
+  if (accessToken) {
+    const profile = await getCachedGoogleUser(accessToken);
+    return {
+      accessToken,
+      accessTokenExpiresAt: 0,
+      user: profile || {},
+      sessionId: "",
+    };
+  }
+  const sessionId = getCookieValue(req, config.authSessionCookieName);
+  if (!sessionId) {
+    return null;
+  }
+  return getFreshSessionAuth(sessionId);
+}
+
+async function getFreshSessionAuth(sessionId) {
+  const session = await getAuthSession(sessionId);
+  if (!session || !session.refreshToken) {
+    return null;
+  }
+  let accessToken = normalizeString(session.accessToken);
+  let accessTokenExpiresAt = Number(session.accessTokenExpiresAt || 0);
+  if (!accessToken || !accessTokenExpiresAt || accessTokenExpiresAt - Date.now() < 2 * 60 * 1000) {
+    const refreshed = await refreshGoogleAccessToken(session);
+    accessToken = refreshed.accessToken;
+    accessTokenExpiresAt = Number(refreshed.accessTokenExpiresAt || 0);
+  }
+  let user = session.user || {};
+  if (!normalizeString(user.email)) {
+    user = await getCachedGoogleUser(accessToken);
+  }
+  const saved = await patchAuthSession(sessionId, {
+    accessToken,
+    accessTokenExpiresAt,
+    user: {
+      email: normalizeString(user?.email),
+      name: normalizeString(user?.name),
+      picture: normalizeString(user?.picture),
+    },
+  });
+  const effective = saved || {
+    ...session,
+    accessToken,
+    accessTokenExpiresAt,
+    user,
+  };
+  return {
+    sessionId,
+    accessToken,
+    accessTokenExpiresAt,
+    user: effective.user || {},
+  };
+}
+
+async function getOptionalAuthState(req) {
+  try {
+    const sessionId = getCookieValue(req, config.authSessionCookieName);
+    if (!sessionId) return null;
+    const session = await getAuthSession(sessionId);
+    if (!session || !session.refreshToken) return null;
+    return {
+      sessionId,
+      user: session.user || {},
+    };
+  } catch (_error) {
+    return null;
+  }
 }
 
 async function appendUploadLogEntries({
@@ -558,6 +755,64 @@ async function getCachedSessionRecords(batch, team) {
 }
 function clearSessionCache(batch, team) {
   sessionCache.delete(`${team}||${batch}`);
+}
+function sanitizeReturnTo(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized.startsWith("/")) return "/";
+  if (normalized.startsWith("//")) return "/";
+  return normalized;
+}
+function parseCookies(req) {
+  const header = String(req.headers.cookie || "");
+  const result = {};
+  header.split(/;\s*/).forEach((part) => {
+    if (!part) return;
+    const index = part.indexOf("=");
+    const rawKey = index === -1 ? part : part.slice(0, index);
+    const rawValue = index === -1 ? "" : part.slice(index + 1);
+    if (!rawKey) return;
+    try {
+      result[decodeURIComponent(rawKey)] = decodeURIComponent(rawValue);
+    } catch (_error) {
+      result[rawKey] = rawValue;
+    }
+  });
+  return result;
+}
+function getCookieValue(req, name) {
+  return parseCookies(req)[name] || "";
+}
+function appendSetCookie(res, cookieValue) {
+  const current = res.getHeader("Set-Cookie");
+  if (!current) {
+    res.setHeader("Set-Cookie", [cookieValue]);
+    return;
+  }
+  const list = Array.isArray(current) ? current.slice() : [String(current)];
+  list.push(cookieValue);
+  res.setHeader("Set-Cookie", list);
+}
+function setCookie(res, name, value, options = {}) {
+  const parts = [
+    `${encodeURIComponent(name)}=${encodeURIComponent(value)}`,
+    `Path=${options.path || "/"}`,
+    `SameSite=${options.sameSite || "Lax"}`,
+  ];
+  if (options.maxAgeMs !== undefined) {
+    parts.push(`Max-Age=${Math.max(0, Math.floor(Number(options.maxAgeMs) / 1000))}`);
+  }
+  if (options.httpOnly !== false) {
+    parts.push("HttpOnly");
+  }
+  if (config.authCookieSecure) {
+    parts.push("Secure");
+  }
+  appendSetCookie(res, parts.join("; "));
+}
+function clearCookie(res, name) {
+  setCookie(res, name, "", {
+    maxAgeMs: 0,
+  });
 }
 app.listen(config.port, () => {
   console.log(`upload-tools-cloud listening on ${config.port}`);

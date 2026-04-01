@@ -1,6 +1,7 @@
 import { Readable } from "node:stream";
 import { config } from "../config.js";
 import { getDrive, getDriveServiceAccount } from "../google.js";
+import { withGoogleApiRateLimitRetry } from "./googleRetry.js";
 import { extractFolderId } from "../utils.js";
 
 export async function getTeamFolder(team) {
@@ -12,13 +13,15 @@ export async function getTeamFolder(team) {
 export async function findChildFolderByName(parentId, name, accessToken) {
   const drive = await getDrive(accessToken);
   const safeName = String(name || "").replace(/'/g, "\\'");
-  const response = await drive.files.list({
-    q: `'${parentId}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder' and name = '${safeName}'`,
-    fields: "files(id,name,webViewLink)",
-    pageSize: 10,
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-  });
+  const response = await withGoogleApiRateLimitRetry(() =>
+    drive.files.list({
+      q: `'${parentId}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder' and name = '${safeName}'`,
+      fields: "files(id,name,webViewLink)",
+      pageSize: 10,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    }),
+  );
   return (response.data.files || [])[0] || null;
 }
 
@@ -37,15 +40,17 @@ export async function getGameFolderForPath(team, date, game, accessToken) {
 
 export async function createUniqueSessionFolder(parentId, sessionId, accessToken) {
   const drive = await getDrive(accessToken);
-  const response = await drive.files.create({
-    requestBody: {
-      name: sessionId,
-      mimeType: "application/vnd.google-apps.folder",
-      parents: [parentId],
-    },
-    fields: "id,name,webViewLink",
-    supportsAllDrives: true,
-  });
+  const response = await withGoogleApiRateLimitRetry(() =>
+    drive.files.create({
+      requestBody: {
+        name: sessionId,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [parentId],
+      },
+      fields: "id,name,webViewLink",
+      supportsAllDrives: true,
+    }),
+  );
   return response.data;
 }
 
@@ -53,45 +58,51 @@ export async function getFolderFromLink(value, accessToken) {
   const folderId = extractFolderId(value);
   if (!folderId) throw new Error("Link thư mục hoặc ID trên Sheet không hợp lệ.");
   const drive = await getDrive(accessToken);
-  const response = await drive.files.get({
-    fileId: folderId,
-    fields: "id,name,parents,webViewLink",
-    supportsAllDrives: true,
-  });
+  const response = await withGoogleApiRateLimitRetry(() =>
+    drive.files.get({
+      fileId: folderId,
+      fields: "id,name,parents,webViewLink",
+      supportsAllDrives: true,
+    }),
+  );
   return response.data;
 }
 
 export async function uploadFileToFolder(folderId, file, sessionId, email, fileType, accessToken) {
   const drive = await getDrive(accessToken);
-  const response = await drive.files.create({
-    requestBody: {
-      name: file.originalname,
-      parents: [folderId],
-      description: [
-        `session_id: ${sessionId}`,
-        `uploaded_by: ${email || ""}`,
-        `file_type: ${fileType}`,
-        `uploaded_at: ${new Date().toISOString()}`,
-      ].join("\n"),
-    },
-    media: {
-      mimeType: file.mimetype || "application/octet-stream",
-      body: Readable.from(file.buffer),
-    },
-    fields: "id,name,webViewLink,description",
-    supportsAllDrives: true,
-  });
+  const response = await withGoogleApiRateLimitRetry(() =>
+    drive.files.create({
+      requestBody: {
+        name: file.originalname,
+        parents: [folderId],
+        description: [
+          `session_id: ${sessionId}`,
+          `uploaded_by: ${email || ""}`,
+          `file_type: ${fileType}`,
+          `uploaded_at: ${new Date().toISOString()}`,
+        ].join("\n"),
+      },
+      media: {
+        mimeType: file.mimetype || "application/octet-stream",
+        body: Readable.from(file.buffer),
+      },
+      fields: "id,name,webViewLink,description",
+      supportsAllDrives: true,
+    }),
+  );
   return response.data;
 }
 
 export async function listFolderFiles(folderId) {
   const drive = await getDriveServiceAccount();
-  const response = await drive.files.list({
-    q: `'${folderId}' in parents and trashed = false`,
-    fields: "files(id,name,webViewLink,description)",
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-  });
+  const response = await withGoogleApiRateLimitRetry(() =>
+    drive.files.list({
+      q: `'${folderId}' in parents and trashed = false`,
+      fields: "files(id,name,webViewLink,description)",
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    }),
+  );
   return (response.data.files || []).map((file) => {
     const meta = parseDescription(file.description || "");
     return {
@@ -107,20 +118,24 @@ export async function listFolderFiles(folderId) {
 
 export async function trashFolder(folderId, accessToken) {
   const drive = await getDrive(accessToken);
-  await drive.files.update({
-    fileId: folderId,
-    requestBody: { trashed: true },
-    supportsAllDrives: true,
-  });
+  await withGoogleApiRateLimitRetry(() =>
+    drive.files.update({
+      fileId: folderId,
+      requestBody: { trashed: true },
+      supportsAllDrives: true,
+    }),
+  );
 }
 
 export async function trashFile(fileId, accessToken) {
   const drive = await getDrive(accessToken);
-  await drive.files.update({
-    fileId,
-    requestBody: { trashed: true },
-    supportsAllDrives: true,
-  });
+  await withGoogleApiRateLimitRetry(() =>
+    drive.files.update({
+      fileId,
+      requestBody: { trashed: true },
+      supportsAllDrives: true,
+    }),
+  );
 }
 
 function parseDescription(description) {
