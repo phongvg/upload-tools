@@ -7,7 +7,6 @@ import {
   getBatchListRecords,
   findBatchRecord,
   updateDriverLink,
-  ensureLogSheet,
   appendRow,
 } from "./services/sheets.js";
 import {
@@ -243,23 +242,19 @@ app.post("/api/upload-session-complete", requireGoogleUser, async (req, res) => 
     }
     await updateDriverLink(batch, record.rowNumber, newDriverLink);
     clearSessionCache(batch, team);
-    try {
-      await appendUploadLogEntries({
-        stage: "upload_and_submit",
-        email,
-        mode,
-        batch,
-        team,
-        selectedDate,
-        selectedGame,
-        sessionId,
-        oldDriverLink,
-        newDriverLink,
-        files: uploadedFiles,
-      });
-    } catch (logError) {
-      console.error("Lỗi ghi log upload:", logError.message);
-    }
+    await appendUploadLogEntries({
+      stage: "upload_and_submit",
+      email,
+      mode,
+      batch,
+      team,
+      selectedDate,
+      selectedGame,
+      sessionId,
+      oldDriverLink,
+      newDriverLink,
+      files: uploadedFiles,
+    });
     res.json({
       ok: true,
       result: {
@@ -302,23 +297,19 @@ app.post("/api/upload-session-abort", requireGoogleUser, async (req, res) => {
       trashError = error;
       console.error("Lỗi xóa folder khi abort:", error.message);
     }
-    try {
-      await appendUploadLogEntries({
-        stage: "upload_aborted",
-        email,
-        mode,
-        batch,
-        team,
-        selectedDate,
-        selectedGame,
-        sessionId,
-        oldDriverLink,
-        newDriverLink,
-        files: uploadedFiles,
-      });
-    } catch (logError) {
-      console.error("Lỗi ghi log abort:", logError.message);
-    }
+    await appendUploadLogEntries({
+      stage: "upload_aborted",
+      email,
+      mode,
+      batch,
+      team,
+      selectedDate,
+      selectedGame,
+      sessionId,
+      oldDriverLink,
+      newDriverLink,
+      files: uploadedFiles,
+    });
     if (trashError) {
       res.status(500).json({ ok: false, message: `Lỗi khi dọn upload lỗi: ${trashError.message}` });
       return;
@@ -340,19 +331,15 @@ app.post("/api/delete-file", requireGoogleUser, async (req, res) => {
       return;
     }
     await trashFile(fileId, req.googleAccessToken);
-    try {
-      await appendDeleteLogEntry({
-        action: "delete_file",
-        deletedBy: normalizeString(req.googleUser?.email),
-        mode,
-        batch,
-        team,
-        sessionId,
-        targetId: fileId,
-      });
-    } catch (logError) {
-      console.error("Lỗi ghi log delete file:", logError.message);
-    }
+    await appendDeleteLogEntry({
+      action: "delete_file",
+      deletedBy: normalizeString(req.googleUser?.email),
+      mode,
+      batch,
+      team,
+      sessionId,
+      targetId: fileId,
+    });
     res.json({ ok: true, message: "Đã xóa file thành công." });
   } catch (error) {
     res.status(500).json({ ok: false, message: `Lỗi khi xóa file: ${error.message}` });
@@ -385,23 +372,19 @@ app.post("/api/delete-uploaded-session", requireGoogleUser, async (req, res) => 
     await trashFolder(folderId, req.googleAccessToken);
     await updateDriverLink(batch, record.rowNumber, restoreMode === "old" ? oldDriverLink : "");
     clearSessionCache(batch, team);
-    try {
-      await appendDeleteLogEntry({
-        action: "delete_uploaded_session",
-        deletedBy: normalizeString(req.googleUser?.email),
-        mode,
-        batch,
-        team,
-        sessionId,
-        targetId: folderId,
-        targetUrl: newDriverLink,
-        oldDriverLink,
-        newDriverLink,
-        restoreMode,
-      });
-    } catch (logError) {
-      console.error("Lỗi ghi log delete session:", logError.message);
-    }
+    await appendDeleteLogEntry({
+      action: "delete_uploaded_session",
+      deletedBy: normalizeString(req.googleUser?.email),
+      mode,
+      batch,
+      team,
+      sessionId,
+      targetId: folderId,
+      targetUrl: newDriverLink,
+      oldDriverLink,
+      newDriverLink,
+      restoreMode,
+    });
     res.json({
       ok: true,
       message: `Thư mục vừa upload của SessionID "${sessionId}" đã được xóa. Sheet đã được cập nhật.`,
@@ -426,41 +409,8 @@ function requireGoogleUser(req, res, next) {
       res.status(401).json({ ok: false, message: `Token Google không hợp lệ hoặc đã hết hạn: ${error.message}` });
     });
 }
-function ensureUploadLogSheet() {
-  return ensureLogSheet(config.uploadLogSheet, [
-    "uploaded_at",
-    "uploaded_by",
-    "stage",
-    "mode",
-    "batch",
-    "team",
-    "date",
-    "game",
-    "session_id",
-    "old_driver_link",
-    "new_driver_link",
-    "file_id",
-    "file_name",
-    "file_url",
-    "file_type",
-  ]);
-}
-function ensureDeleteLogSheet() {
-  return ensureLogSheet(config.deleteLogSheet, [
-    "deleted_at",
-    "deleted_by",
-    "action",
-    "mode",
-    "batch",
-    "team",
-    "session_id",
-    "target_id",
-    "target_url",
-    "old_driver_link",
-    "new_driver_link",
-    "restore_mode",
-  ]);
-}
+
+
 function getAccessTokenFromRequest(req) {
   const authHeader = String(req.headers.authorization || "");
   if (!authHeader.startsWith("Bearer ")) return "";
@@ -491,7 +441,6 @@ async function appendUploadLogEntries({
   newDriverLink,
   files = [],
 }) {
-  await ensureUploadLogSheet();
   const normalizedEmail = normalizeString(email);
   const normalizedStage = normalizeString(stage);
   const normalizedMode = normalizeString(mode);
@@ -502,8 +451,8 @@ async function appendUploadLogEntries({
   const normalizedSessionId = normalizeString(sessionId);
   const normalizedOldDriverLink = normalizeString(oldDriverLink);
   const normalizedNewDriverLink = normalizeString(newDriverLink);
-  const fileSummary = summarizeUploadFiles(files);
-  await appendRow(config.uploadLogSheet, [
+  const normalizedFiles = Array.isArray(files) ? files.filter(Boolean) : [];
+  const baseRow = [
     new Date().toISOString(),
     normalizedEmail,
     normalizedStage,
@@ -515,11 +464,20 @@ async function appendUploadLogEntries({
     normalizedSessionId,
     normalizedOldDriverLink,
     normalizedNewDriverLink,
-    fileSummary.ids,
-    fileSummary.names,
-    fileSummary.urls,
-    fileSummary.types,
-  ]);
+  ];
+  if (normalizedFiles.length === 0) {
+    await appendRow(config.uploadLogSheet, [...baseRow, "", "", "", ""]);
+  } else {
+    for (const file of normalizedFiles) {
+      await appendRow(config.uploadLogSheet, [
+        ...baseRow,
+        normalizeString(file.id),
+        normalizeString(file.name),
+        normalizeString(file.webViewLink),
+        normalizeString(file.fileType),
+      ]);
+    }
+  }
 }
 async function appendDeleteLogEntry({
   action,
@@ -534,43 +492,25 @@ async function appendDeleteLogEntry({
   newDriverLink,
   restoreMode,
 }) {
-  await ensureDeleteLogSheet();
-  await appendRow(config.deleteLogSheet, [
+  await appendRow(config.uploadLogSheet, [
     new Date().toISOString(),
     normalizeString(deletedBy),
     normalizeString(action),
     normalizeString(mode),
     normalizeString(batch),
     normalizeString(team),
+    "",
+    "",
     normalizeString(sessionId),
-    normalizeString(targetId),
-    normalizeString(targetUrl),
     normalizeString(oldDriverLink),
     normalizeString(newDriverLink),
+    normalizeString(targetId),
+    "",
+    normalizeString(targetUrl),
     normalizeString(restoreMode),
   ]);
 }
-function summarizeUploadFiles(files) {
-  const normalizedFiles = Array.isArray(files) ? files.filter(Boolean) : [];
-  return {
-    ids: normalizedFiles
-      .map((file) => normalizeString(file.id))
-      .filter(Boolean)
-      .join(" | "),
-    names: normalizedFiles
-      .map((file) => normalizeString(file.name))
-      .filter(Boolean)
-      .join(" | "),
-    urls: normalizedFiles
-      .map((file) => normalizeString(file.webViewLink))
-      .filter(Boolean)
-      .join(" | "),
-    types: normalizedFiles
-      .map((file) => normalizeString(file.fileType))
-      .filter(Boolean)
-      .join(" | "),
-  };
-}
+
 function getDriveFolderUrl(folderId, originalValue) {
   const value = normalizeString(originalValue);
   if (value.startsWith("http://") || value.startsWith("https://")) {

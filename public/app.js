@@ -184,13 +184,20 @@ function requestGoogleAccessToken(options) {
   authState.pendingTokenRequest = pending;
   try {
     authState.tokenClient.requestAccessToken({
-      prompt: interactive ? "consent" : "",
+      prompt: options?.prompt !== undefined ? options.prompt : (interactive ? "consent" : ""),
     });
   } catch (error) {
     authState.pendingTokenRequest = null;
     pending.reject(error);
   }
   return pending.promise;
+}
+async function ensureTokenForRetry() {
+  try {
+    await requestGoogleAccessToken({ interactive: false });
+  } catch (_) {
+    await requestGoogleAccessToken({ interactive: true, prompt: "" });
+  }
 }
 async function ensureFreshGoogleAccessToken(minTtlMs) {
   const ttlMs = Number(minTtlMs || 0);
@@ -1877,7 +1884,7 @@ async function fetchApiWithGoogleAuth(url, init, options) {
   if (!retryOnAuthFailure || response.status !== 401) {
     return response;
   }
-  await requestGoogleAccessToken({ interactive: false, refreshProfile: false });
+  await ensureTokenForRetry();
   response = await fetch(url, {
     ...(init || {}),
     headers: {
@@ -1972,7 +1979,7 @@ async function fetchDriveWithGoogleAuth(url, init) {
   if (response.status !== 401) {
     return response;
   }
-  await requestGoogleAccessToken({ interactive: false, refreshProfile: false });
+  await ensureTokenForRetry();
   const retryHeaders = {
     ...(((init || {}).headers && typeof (init || {}).headers === "object")
       ? (init || {}).headers
