@@ -55,7 +55,7 @@ export async function getUserProfile(accessToken) {
 }
 
 export const REQUIRED_SCOPES = [
-  DRIVE_SCOPE,
+  "openid",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
 ];

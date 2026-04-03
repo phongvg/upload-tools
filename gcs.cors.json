@@ -1,0 +1,20 @@
+[
+  {
+    "origin": [
+      "*"
+    ],
+    "method": [
+      "GET",
+      "HEAD",
+      "PUT"
+    ],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Range",
+      "Range",
+      "x-goog-resumable",
+      "x-guploader-uploadid"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

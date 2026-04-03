@@ -1,13 +1,21 @@
 import { config } from "../config.js";
-import { getSheets } from "../google.js";
-import { normalizeHeader, normalizeString, resolveBatchLayout } from "../utils.js";
+import { getSheets } from "../lib/google.js";
+import { normalizeHeader, normalizeString, resolveBatchLayout } from "../lib/utils.js";
+import { clearSharedCache, getSharedCache, setSharedCache } from "./cache.js";
 
 const ASSIGNMENT_RANGE = `${config.assignmentSheet}!A2:B`;
+const FIXED_DRIVER_LINK_COLUMN_A1 = "N";
+const FIXED_QC_STATUS_COLUMN_A1 = "U";
+const FIXED_WARNING_COLUMN_A1 = "V";
+const FIXED_VIDEO_DURATION_COLUMN_A1 = "X";
+const EDIT_CLEAR_RANGE_A1 = "N:R";
 const SHEET_MATRIX_CACHE_TTL_MS = 2 * 60 * 1000;
 const SHEET_LAYOUT_CACHE_TTL_MS = 30 * 60 * 1000;
+const BATCH_RECORDS_SHARED_CACHE_TTL_MS = 10 * 60 * 1000;
 const sheetMatrixCache = new Map();
 const sheetLayoutCache = new Map();
 const inFlightMatrixFetches = new Map();
+const inFlightBatchRecordFetches = new Map();
 
 export async function getBatchMap() {
   const sheets = await getSheets();
@@ -109,48 +117,154 @@ function buildRecord(row, rowIndex, layout, selectedTeam, includeDriverLink) {
   };
 }
 
-export async function getBatchListRecords(batchName, selectedTeam) {
-  const { values, layout } = await getSheetMatrix(batchName);
-  const records = [];
-  for (let i = 1; i < values.length; i += 1) {
-    const record = buildRecord(values[i] || [], i + 1, layout, selectedTeam, false);
-    if (!record) continue;
-    record.batchName = batchName;
-    records.push(record);
-  }
-  return records;
+export async function getBatchListRecords(batchName, selectedTeam, options = {}) {
+  const records = await getBatchRecords(batchName, selectedTeam, options);
+  return records.map((record) => ({
+    ...record,
+    driverLink: "",
+  }));
 }
 
-async function getBatchRecords(batchName, selectedTeam) {
-  const { values, layout } = await getSheetMatrix(batchName);
-  const records = [];
-  for (let i = 1; i < values.length; i += 1) {
-    const record = buildRecord(values[i] || [], i + 1, layout, selectedTeam, true);
-    if (!record) continue;
-    record.batchName = batchName;
-    records.push(record);
+async function getBatchRecords(batchName, selectedTeam, options = {}) {
+  const allRecords = await getBatchRecordsAllTeams(batchName, options);
+  const normalizedTeam = normalizeString(selectedTeam);
+  if (!normalizedTeam) {
+    return allRecords;
   }
-  return records;
+  return allRecords.map((record) => ({
+    ...record,
+    team: normalizedTeam,
+  }));
 }
 
-export async function findBatchRecord(batchName, sessionId, selectedTeam) {
-  const records = await getBatchRecords(batchName, selectedTeam);
+async function getBatchRecordsAllTeams(batchName, options = {}) {
+  const sharedKey = getBatchRecordsSharedCacheKey(batchName);
+  const forceRefresh = options.forceRefresh === true;
+  if (forceRefresh) {
+    clearSharedCache(sharedKey).catch(() => {});
+    clearSheetMatrixCache(batchName);
+  }
+  const shared = forceRefresh ? null : await getSharedCache(sharedKey);
+  if (!forceRefresh && Array.isArray(shared) && shared.length) {
+    return shared;
+  }
+  const key = normalizeString(batchName);
+  const inFlight = forceRefresh ? null : inFlightBatchRecordFetches.get(key);
+  if (inFlight) {
+    return inFlight;
+  }
+  const promise = (async () => {
+    try {
+      const { values, layout } = await getSheetMatrix(batchName);
+      const records = [];
+      for (let i = 1; i < values.length; i += 1) {
+        const record = buildRecord(values[i] || [], i + 1, layout, "", true);
+        if (!record) continue;
+        record.batchName = batchName;
+        records.push(record);
+      }
+      setSharedCache(sharedKey, records, BATCH_RECORDS_SHARED_CACHE_TTL_MS).catch(() => {});
+      return records;
+    } finally {
+      inFlightBatchRecordFetches.delete(key);
+    }
+  })();
+  inFlightBatchRecordFetches.set(key, promise);
+  return promise;
+}
+
+export async function findBatchRecord(batchName, sessionId, selectedTeam, options = {}) {
+  const records = await getBatchRecords(batchName, selectedTeam, options);
   return records.find((item) => item.sessionId === normalizeString(sessionId)) || null;
 }
 
-export async function updateDriverLink(batchName, rowNumber, folderUrl) {
+export async function resolveBatchRowForSession(
+  batchName,
+  sessionId,
+  selectedTeam,
+  expectedRowNumber,
+) {
+  const record = await findBatchRecord(batchName, sessionId, selectedTeam);
+  if (!record || !record.rowNumber) {
+    throw new Error(
+      `Không tìm thấy đúng dòng Sheet cho SessionID "${normalizeString(sessionId)}".`,
+    );
+  }
+  return {
+    ...record,
+    rowNumber: Number(record.rowNumber),
+    rowChanged:
+      Number(expectedRowNumber || 0) > 0 &&
+      Number(record.rowNumber) !== Number(expectedRowNumber),
+  };
+}
+
+export async function updateDriverLink(batchName, rowNumber, folderUrl, options = {}) {
   const sheets = await getSheets();
-  const layout = await getSheetLayout(batchName);
-  const column = layout.driverLink + 1;
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: config.spreadsheetId,
-    range: `${batchName}!${columnToA1(column)}${rowNumber}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: {
+  const clearEditColumns = options.clearEditColumns === true;
+  const videoDuration = options.videoDuration != null ? options.videoDuration : null;
+  // warning: string nếu có cảnh báo, "" nếu không có (để ghi trống xóa giá trị cũ)
+  const warning = options.warning != null ? String(options.warning) : null;
+
+  // Xây danh sách ranges cần ghi — chỉ đúng các ô được chỉ định, không động cột khác
+  const data = [];
+
+  if (clearEditColumns) {
+    // Edit mode: ghi N + xoá O:R (hành vi cũ), chỉ đúng range N:R
+    data.push({
+      range: `${batchName}!${EDIT_CLEAR_RANGE_A1}${rowNumber}`,
+      values: [[folderUrl || "", "", "", "", ""]],
+    });
+  } else {
+    data.push({
+      range: `${batchName}!${FIXED_DRIVER_LINK_COLUMN_A1}${rowNumber}`,
       values: [[folderUrl || ""]],
-    },
+    });
+  }
+
+  // Cột U: QC status — luôn là "PASS" vì hàm này chỉ được gọi sau khi QC pass
+  data.push({
+    range: `${batchName}!${FIXED_QC_STATUS_COLUMN_A1}${rowNumber}`,
+    values: [["PASS"]],
   });
+
+  // Cột V: warning từ QC (ghi cả khi rỗng để xóa giá trị cũ khi re-upload)
+  if (warning != null) {
+    data.push({
+      range: `${batchName}!${FIXED_WARNING_COLUMN_A1}${rowNumber}`,
+      values: [[warning]],
+    });
+  }
+
+  // Cột X: video duration (giây, number)
+  if (videoDuration != null) {
+    data.push({
+      range: `${batchName}!${FIXED_VIDEO_DURATION_COLUMN_A1}${rowNumber}`,
+      values: [[Number(videoDuration) || 0]],
+    });
+  }
+
+  if (data.length === 1) {
+    // Chỉ 1 range → dùng values.update thông thường
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: config.spreadsheetId,
+      range: data[0].range,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: data[0].values },
+    });
+  } else {
+    // Nhiều ranges không liền nhau → dùng batchUpdate để ghi đúng từng ô riêng
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: config.spreadsheetId,
+      requestBody: {
+        valueInputOption: "USER_ENTERED",
+        data,
+      },
+    });
+  }
+
   clearSheetMatrixCache(batchName);
+  clearSharedCache(getBatchRecordsSharedCacheKey(batchName)).catch(() => {});
 }
 
 const ensuredSheets = new Set();
@@ -193,11 +307,11 @@ export async function ensureLogSheet(sheetName, headers) {
   ensuredSheets.add(sheetName);
 }
 
-export async function appendRow(sheetName, row) {
+export async function appendRow(sheetName, row, range = "A1") {
   const sheets = await getSheets();
   await sheets.spreadsheets.values.append({
     spreadsheetId: config.spreadsheetId,
-    range: `${sheetName}!A1`,
+    range: `${sheetName}!${range}`,
     valueInputOption: "RAW",
     insertDataOption: "INSERT_ROWS",
     requestBody: {
@@ -219,6 +333,10 @@ function setSheetMatrixCache(batchName, matrix) {
     value: matrix,
     expiresAt: Date.now() + SHEET_MATRIX_CACHE_TTL_MS,
   });
+}
+
+function getBatchRecordsSharedCacheKey(batchName) {
+  return `batch_records_v2:${normalizeString(batchName)}`;
 }
 
 function getSheetLayoutCache(batchName) {
